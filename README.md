@@ -146,8 +146,8 @@ Voir [docs/DEVELOPER.md](docs/DEVELOPER.md)
 
 ## 📄 Licence
 
-MIT License
+GPLv3 License
 
 ---
 
-**Made with ❤️ by the H2GIS community** - *28 janvier 2026*
+**Made with ❤️ by the NoiseModelling/H2GIS community** - *28 janvier 2026*

@@ -21,3 +21,7 @@ Makefile
 
 # Logs
 *.log
+
+# Documentation and Tests
+docs/
+tests/
