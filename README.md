@@ -131,18 +131,6 @@ cat /tmp/h2gis_driver.log
 
 ---
 
-## 📚 Documentation
-
-- [Guide du développeur](docs/DEVELOPER.md) - Architecture, contribution, debugging
-
----
-
-## 🤝 Contribution
-
-Voir [docs/DEVELOPER.md](docs/DEVELOPER.md)
-
----
-
 ## 📄 Licence
 
 GPLv3 License
