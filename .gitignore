@@ -1,0 +1,23 @@
+# Build directories
+build/
+build_container/
+build-legacy/
+
+# Compilation output
+*.so
+!libh2gis.so
+*.o
+*.a
+
+# CMake artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# IDE settings
+.vscode/
+.idea/
+
+# Logs
+*.log
