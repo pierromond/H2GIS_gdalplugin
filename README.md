@@ -1,6 +1,5 @@
 # 🗄️ GDAL H2GIS Driver
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GDAL](https://img.shields.io/badge/GDAL-3.4+-blue.svg)](https://gdal.org/)
 [![H2GIS](https://img.shields.io/badge/H2GIS-2.2+-green.svg)](http://www.h2gis.org/)
 
