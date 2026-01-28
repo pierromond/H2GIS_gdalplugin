@@ -4,8 +4,6 @@
 #
 # Usage: ./install.sh [--uninstall]
 #
-# "Pourquoi Nico code-t-il la nuit ? Parce que le jour,
-#  il est occupé à expliquer son code de la nuit précédente." - Anonyme
 #==============================================================================
 
 set -e
