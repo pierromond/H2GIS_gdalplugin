@@ -1,6 +1,6 @@
-# Use an older Ubuntu version to ensure GLIBC compatibility (e.g., Ubuntu 20.04 uses GLIBC 2.31)
-# This binary will work on Ubuntu 20.04, 22.04, 24.04, etc.
-FROM ubuntu:20.04
+# Use Ubuntu 22.04 to match the target machine's environment (GDAL 3.4.1, GLIBC 2.35)
+# This ensures binary compatibility with the colleague's setup.
+FROM ubuntu:22.04
 
 # Avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive

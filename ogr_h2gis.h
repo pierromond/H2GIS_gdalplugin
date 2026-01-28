@@ -220,7 +220,7 @@ public:
     virtual OGRLayer   *ExecuteSQL(const char *pszSQL, OGRGeometry *poSpatialFilter, const char *pszDialect) override;
     virtual void        ReleaseResultSet(OGRLayer *poLayer) override;
 
-#if GDAL_VERSION_MAJOR >= 3 && GDAL_VERSION_MINOR >= 1
+#if GDAL_VERSION_NUM >= 3050000
     virtual OGRLayer   *ICreateLayer(const char *pszName, const OGRSpatialReference *poSpatialRef = nullptr, OGRwkbGeometryType eGType = wkbUnknown, char **papszOptions = nullptr) override;
 #else
     virtual OGRLayer   *ICreateLayer(const char *pszName, OGRSpatialReference *poSpatialRef = nullptr, OGRwkbGeometryType eGType = wkbUnknown, char **papszOptions = nullptr) override;

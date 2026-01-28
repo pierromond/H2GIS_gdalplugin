@@ -7,6 +7,9 @@ SOURCE_DIR="$(dirname "$SCRIPT_DIR")"
 echo "Building Docker image for legacy compatibility..."
 docker build -t h2gis-driver-builder "$SCRIPT_DIR"
 
+# Ensure output directory exists and is owned by the current user
+mkdir -p "$SOURCE_DIR/build-legacy"
+
 echo "Compiling gdal_H2GIS.so in container..."
 # Run container using the current user ID to avoid permission issues on the output file
 docker run --rm \
