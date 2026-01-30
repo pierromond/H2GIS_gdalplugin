@@ -665,7 +665,7 @@ OGRFeature* OGRH2GISLayer::GetFeature(GIntBig nFID)
     return poFeature;
 }
 
-int OGRH2GISLayer::TestCapability(const char * pszCap) const
+int OGRH2GISLayer::TestCapability(const char * pszCap)
 {
     if (EQUAL(pszCap, OLCCreateField)) return TRUE;
     if (EQUAL(pszCap, OLCSequentialWrite)) return TRUE;

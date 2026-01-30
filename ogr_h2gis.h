@@ -190,7 +190,7 @@ public:
     virtual OGRFeatureDefn *GetLayerDefn() override;
     const char*         GetGeomColumnName() const { return m_osGeomCol.c_str(); }
     const char*         GetTableName() const { return m_osTableName.c_str(); }
-    virtual int         TestCapability(const char *) const override;
+    virtual int         TestCapability(const char *) override;
     
     // GDAL 2.3+ const correctness
     const char*         GetFIDColumn() override { return m_osFIDCol.empty() ? "_ROWID_" : m_osFIDCol.c_str(); }
