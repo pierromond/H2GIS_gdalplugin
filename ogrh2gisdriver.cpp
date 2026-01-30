@@ -34,14 +34,6 @@
 #include <string.h>
 #include <string>
 
-// Debug logging
-static void LogDebug(const char* msg) {
-    FILE* f = fopen("/tmp/h2gis_driver_debug.log", "a");
-    if (f) {
-        fprintf(f, "[H2GIS DRIVER] %s\n", msg);
-        fclose(f);
-    }
-}
 
 /************************************************************************/
 /*                              Identify()                              */
@@ -77,16 +69,9 @@ static int OGRH2GISDriverIdentify(GDALOpenInfo *poOpenInfo)
         size_t nLen = strlen(pszFilename);
         if (nLen > 6 && EQUAL(pszFilename + nLen - 6, ".mv.db"))
         {
-            char buf[256];
-            snprintf(buf, sizeof(buf), "Identify: Matched .mv.db file: %s", pszFilename);
-            LogDebug(buf);
+            CPLDebug("H2GIS", "Identify: Matched .mv.db file: %s", pszFilename);
             return TRUE;
         }
-    }
-
-    // Accept direct .mv.db path even if GDAL did not open a file handle yet
-    if (filename.size() > 6 && filename.compare(filename.size() - 6, 6, ".mv.db") == 0) {
-        return TRUE;
     }
 
     return FALSE;
@@ -101,9 +86,7 @@ static GDALDataset *OGRH2GISDriverOpen(GDALOpenInfo *poOpenInfo)
     if (!OGRH2GISDriverIdentify(poOpenInfo))
         return nullptr;
 
-    char buf[256];
-    snprintf(buf, sizeof(buf), "Open: Opening file: %s", poOpenInfo->pszFilename);
-    LogDebug(buf);
+    CPLDebug("H2GIS", "Open: Opening file: %s", poOpenInfo->pszFilename);
 
     // Extract GDAL Open Options for authentication
     const char* pszUser = CSLFetchNameValue(poOpenInfo->papszOpenOptions, "USER");
@@ -136,8 +119,7 @@ static GDALDataset *OGRH2GISDriverOpen(GDALOpenInfo *poOpenInfo)
     std::string finalPass = pszPassword ? pszPassword : uriPass;
     
     if (!finalUser.empty()) {
-        snprintf(buf, sizeof(buf), "Open: Using credentials USER='%s'", finalUser.c_str());
-        LogDebug(buf);
+        CPLDebug("H2GIS", "Open: Using credentials USER='%s'", finalUser.c_str());
     }
 
     OGRH2GISDataSource *poDS = new OGRH2GISDataSource();
@@ -167,7 +149,7 @@ static GDALDataset *OGRH2GISDriverOpen(GDALOpenInfo *poOpenInfo)
         return nullptr;
     }
 
-    LogDebug("Open: Successfully opened datasource");
+    CPLDebug("H2GIS", "Open: Successfully opened datasource");
     return poDS;
 }
 
@@ -197,19 +179,33 @@ static GDALDataset *OGRH2GISDriverCreate( const char * pszName,
 
 void RegisterOGRH2GIS()
 {
-    LogDebug("RegisterOGRH2GIS: Starting registration");
+    if (!GDAL_CHECK_VERSION("H2GIS driver"))
+        return;
 
-    if (GDALGetDriverByName("H2GIS") != nullptr)
+    CPLDebug("H2GIS", "RegisterOGRH2GIS: Starting registration");
+
+    if (GDALGetDriverByName(H2GIS_DRIVER_NAME) != nullptr)
     {
-        LogDebug("RegisterOGRH2GIS: Driver already registered");
+        CPLDebug("H2GIS", "RegisterOGRH2GIS: Driver already registered");
         return;
     }
 
     GDALDriver *poDriver = new GDALDriver();
 
-    poDriver->SetDescription("H2GIS");
+    poDriver->SetDescription(H2GIS_DRIVER_NAME);
     poDriver->SetMetadataItem(GDAL_DCAP_VECTOR, "YES");
-    
+    poDriver->SetMetadataItem(GDAL_DMD_CREATIONFIELDDATATYPES, "Integer Integer64 Real String Date DateTime Time Binary");
+    poDriver->SetMetadataItem(GDAL_DMD_CREATIONFIELDDATASUBTYPES, "Boolean");
+    poDriver->SetMetadataItem(GDAL_DS_LAYER_CREATIONOPTIONLIST,
+        "<LayerCreationOptionList>"
+        "  <Option name='GEOMETRY_NAME' type='string' description='Name of geometry column' default='GEOM'/>"
+        "  <Option name='FID' type='string' description='Name of the FID column' default='ID'/>"
+        "  <Option name='SPATIAL_INDEX' type='boolean' description='Create spatial index' default='YES'/>"
+        "</LayerCreationOptionList>");
+    poDriver->SetMetadataItem(GDAL_DMD_SUPPORTED_SQL_DIALECTS, "NATIVE OGRSQL");
+    poDriver->SetMetadataItem(GDAL_DCAP_MEASURED_GEOMETRIES, "YES");
+    poDriver->SetMetadataItem(GDAL_DCAP_Z_GEOMETRIES, "YES");
+
 #ifdef GDAL_DCAP_CREATE_LAYER
     poDriver->SetMetadataItem(GDAL_DCAP_CREATE_LAYER, "YES");
 #endif
@@ -236,7 +232,7 @@ void RegisterOGRH2GIS()
 
     GetGDALDriverManager()->RegisterDriver(poDriver);
 
-    LogDebug("RegisterOGRH2GIS: Driver registered successfully");
+    CPLDebug("H2GIS", "RegisterOGRH2GIS: Driver registered successfully");
 }
 
 /************************************************************************/

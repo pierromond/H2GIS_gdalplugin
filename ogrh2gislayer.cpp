@@ -19,13 +19,16 @@ OGRH2GISLayer::OGRH2GISLayer(OGRH2GISDataSource *poDS,
                              const char *pszTableName,
                              const char *pszLayerName,
                              const char *pszGeomCol, 
+                                                         const char *pszFIDCol,
                              int nSrid,
                              OGRwkbGeometryType eGeomType,
                              GIntBig nRowCountEstimate,
                              const std::vector<H2GISColumnInfo>& columns)
     : m_poDS(poDS), m_poFeatureDefn(new OGRFeatureDefn(pszLayerName)), 
       m_osTableName(pszTableName ? pszTableName : ""),
-      m_osGeomCol(pszGeomCol ? pszGeomCol : ""), m_nSRID(nSrid),
+            m_osGeomCol(pszGeomCol ? pszGeomCol : ""),
+            m_osFIDCol(pszFIDCol ? pszFIDCol : ""),
+            m_nSRID(nSrid),
       m_nRS(0), m_hStmt(0),
       m_pBatchBuffer(nullptr), m_nBatchBufferSize(0), m_nBatchRows(0), m_iNextRowInBatch(0),
       m_iNextShapeId(0), m_nFeatureCount(nRowCountEstimate), 
@@ -72,6 +75,7 @@ OGRH2GISLayer::OGRH2GISLayer(OGRH2GISDataSource *poDS,
     for (const auto& col : columns) {
         // Skip geometry columns (already handled above)
         if (col.isGeometry()) continue;
+        if (!m_osFIDCol.empty() && EQUAL(col.name.c_str(), m_osFIDCol.c_str())) continue;
         
         OGRFieldType ogrType = MapH2DataType(col.dataType);
         OGRFieldDefn oField(col.name.c_str(), ogrType);
@@ -151,12 +155,23 @@ void OGRH2GISLayer::FetchSchema()
             int32_t type;
             memcpy(&type, colPtr, 4); 
             
+            // Skip FID column (used for FID, not exposed as field)
+            if (!m_osFIDCol.empty() && EQUAL(colName.c_str(), m_osFIDCol.c_str())) {
+                continue;
+            }
+            
             if (type == H2GIS_TYPE_GEOM) {
+                 // Only add geometry field if not already present
                  if (m_poFeatureDefn->GetGeomFieldCount() == 0) {
                     OGRGeomFieldDefn gfd(colName.c_str(), wkbUnknown);
                     m_poFeatureDefn->AddGeomFieldDefn(&gfd);
                  }
             } else {
+                // Skip if field already exists in definition
+                if (m_poFeatureDefn->GetFieldIndex(colName.c_str()) >= 0) {
+                    continue;
+                }
+                
                 OGRFieldType ogrType = OFTString;
                 if (type == H2GIS_TYPE_INT) ogrType = OFTInteger;
                 else if (type == H2GIS_TYPE_LONG) ogrType = OFTInteger64;
@@ -223,9 +238,13 @@ void OGRH2GISLayer::PrepareQuery()
     
     LogLayer("PrepareQuery", m_poFeatureDefn->GetName());
     
-    // Include _ROWID_ as the first column for FID support
     // Use table name for SQL (not layer name which may be TABLE.GEOM_COL)
-    std::string sql = "SELECT _ROWID_, * FROM \"" + m_osTableName + "\"";
+    std::string sql;
+    if (!m_osFIDCol.empty()) {
+        sql = "SELECT * FROM \"" + m_osTableName + "\"";
+    } else {
+        sql = "SELECT _ROWID_, * FROM \"" + m_osTableName + "\"";
+    }
     
     // Add WHERE clause for spatial filter (critical for large tables!)
     // Use m_osGeomCol directly - it's set from GEOMETRY_COLUMNS in constructor
@@ -298,6 +317,7 @@ bool OGRH2GISLayer::FetchNextBatch() {
     
     m_columnValues.resize(colCount);
     m_columnTypes.resize(colCount);
+    m_columnNames.resize(colCount);
     
     uint8_t* base = (uint8_t*)m_pBatchBuffer;
     
@@ -305,7 +325,8 @@ bool OGRH2GISLayer::FetchNextBatch() {
         uint8_t* colPtr = base + offsets[i];
         
         int32_t nameLen;
-        memcpy(&nameLen, colPtr, 4); colPtr += 4 + nameLen;
+        memcpy(&nameLen, colPtr, 4); colPtr += 4;
+        std::string colName((char*)colPtr, nameLen); colPtr += nameLen;
         
         int32_t type;
         memcpy(&type, colPtr, 4); colPtr += 4;
@@ -315,6 +336,7 @@ bool OGRH2GISLayer::FetchNextBatch() {
         
         m_columnValues[i] = colPtr;
         m_columnTypes[i] = type;
+        m_columnNames[i] = colName;
     }
     
     m_iNextRowInBatch = 0;
@@ -323,12 +345,12 @@ bool OGRH2GISLayer::FetchNextBatch() {
 
 OGRFeature *OGRH2GISLayer::GetNextFeature()
 {
-    LogLayer("GetNextFeature", m_poFeatureDefn->GetName());
+    // EnsureSchema(); // Already done
     
-    // Lazy preparation - only prepare query when actually reading
+    // Lazy preparation
     if (m_bResetPending) {
-        EnsureSchema();  // Load schema before first read
-        PrepareQuery();
+         EnsureSchema();
+         PrepareQuery();
     }
     
     if (!m_nRS) ResetReading();
@@ -346,9 +368,26 @@ OGRFeature *OGRH2GISLayer::GetNextFeature()
     for(size_t iCol = 0; iCol < m_columnValues.size(); iCol++) {
         int type = m_columnTypes[iCol];
         uint8_t* &ptr = m_columnValues[iCol];
+        const std::string& colName = m_columnNames[iCol];
         
-        // First column is _ROWID_ - use as FID
-        if (iCol == 0 && type == H2GIS_TYPE_LONG) {
+        // Use configured FID column when available; otherwise use _ROWID_
+        if (!m_osFIDCol.empty() && EQUAL(colName.c_str(), m_osFIDCol.c_str())) {
+            if (type == H2GIS_TYPE_LONG) {
+                int64_t rowid;
+                memcpy(&rowid, ptr, 8); ptr += 8;
+                poFeature->SetFID(rowid);
+                fidSet = true;
+                continue;
+            } else if (type == H2GIS_TYPE_INT) {
+                int32_t rowid;
+                memcpy(&rowid, ptr, 4); ptr += 4;
+                poFeature->SetFID(rowid);
+                fidSet = true;
+                continue;
+            }
+        }
+
+        if (m_osFIDCol.empty() && iCol == 0 && type == H2GIS_TYPE_LONG) {
             int64_t rowid;
             memcpy(&rowid, ptr, 8); ptr += 8;
             poFeature->SetFID(rowid);
@@ -423,7 +462,12 @@ OGRFeature *OGRH2GISLayer::GetNextFeature()
             memcpy(&len, ptr, 4); ptr += 4;
             if (len > 0) {
                 std::string s((char*)ptr, len);
-                poFeature->SetField(iField, s.c_str());
+                if (iField < m_poFeatureDefn->GetFieldCount()) {
+                    const char* pszFieldName = m_poFeatureDefn->GetFieldDefn(iField)->GetNameRef();
+                    if (!pszFieldName || m_ignoredFields.find(pszFieldName) == m_ignoredFields.end()) {
+                        poFeature->SetField(iField, s.c_str());
+                    }
+                }
             }
             ptr += len;
             iField++;
@@ -431,41 +475,57 @@ OGRFeature *OGRH2GISLayer::GetNextFeature()
         } else if (type == H2GIS_TYPE_INT) {
              int32_t val;
              memcpy(&val, ptr, 4); ptr += 4;
-             poFeature->SetField(iField, val);
+             if (iField < m_poFeatureDefn->GetFieldCount()) {
+                 const char* pszFieldName = m_poFeatureDefn->GetFieldDefn(iField)->GetNameRef();
+                 if (!pszFieldName || m_ignoredFields.find(pszFieldName) == m_ignoredFields.end()) {
+                     poFeature->SetField(iField, val);
+                 }
+             }
              iField++;
              
         } else if (type == H2GIS_TYPE_LONG) {
              int64_t val;
              memcpy(&val, ptr, 8); ptr += 8;
-             poFeature->SetField(iField, (GIntBig)val);
+             if (iField < m_poFeatureDefn->GetFieldCount()) {
+                 const char* pszFieldName = m_poFeatureDefn->GetFieldDefn(iField)->GetNameRef();
+                 if (!pszFieldName || m_ignoredFields.find(pszFieldName) == m_ignoredFields.end()) {
+                     poFeature->SetField(iField, (GIntBig)val);
+                 }
+             }
              iField++;
              
         } else if (type == H2GIS_TYPE_DOUBLE) {
              double val;
              memcpy(&val, ptr, 8); ptr += 8;
-             poFeature->SetField(iField, val);
+             if (iField < m_poFeatureDefn->GetFieldCount()) {
+                 const char* pszFieldName = m_poFeatureDefn->GetFieldDefn(iField)->GetNameRef();
+                 if (!pszFieldName || m_ignoredFields.find(pszFieldName) == m_ignoredFields.end()) {
+                     poFeature->SetField(iField, val);
+                 }
+             }
              iField++;
              
         } else if (type == H2GIS_TYPE_FLOAT) {
              float val;
              memcpy(&val, ptr, 4); ptr += 4;
-             poFeature->SetField(iField, (double)val);
+             if (iField < m_poFeatureDefn->GetFieldCount()) {
+                 const char* pszFieldName = m_poFeatureDefn->GetFieldDefn(iField)->GetNameRef();
+                 if (!pszFieldName || m_ignoredFields.find(pszFieldName) == m_ignoredFields.end()) {
+                     poFeature->SetField(iField, (double)val);
+                 }
+             }
              iField++;
              
         } else if (type == H2GIS_TYPE_BOOL) {
              int8_t val;
              memcpy(&val, ptr, 1); ptr += 1;
-             poFeature->SetField(iField, (int)val);
+             if (iField < m_poFeatureDefn->GetFieldCount()) {
+                 const char* pszFieldName = m_poFeatureDefn->GetFieldDefn(iField)->GetNameRef();
+                 if (!pszFieldName || m_ignoredFields.find(pszFieldName) == m_ignoredFields.end()) {
+                     poFeature->SetField(iField, (int)val);
+                 }
+             }
              iField++;
-        } else {
-             // DATE or OTHER: we must skip it correctly or we desync.
-             // If type is variable length, we have a problem if we don't know format.
-             // DATE: usually 8 bytes? Or string?
-             // H2GIS_TYPE_DATE = 7.
-             // Assuming it sends 8 bytes (long timestamp) or similar.
-             // If we choke here, we desync.
-             // Best guess: look at wrapper C code?
-             // Or verify with test table that strictly uses INT/STRING/GEOM.
         }
     }
     
@@ -479,26 +539,163 @@ OGRFeature *OGRH2GISLayer::GetNextFeature()
     return poFeature;
 }
 
-int OGRH2GISLayer::TestCapability(const char * pszCap)
+OGRFeature* OGRH2GISLayer::GetFeature(GIntBig nFID)
+{
+    EnsureSchema();
+
+    std::string fidCol = m_osFIDCol.empty() ? "_ROWID_" : ("\"" + m_osFIDCol + "\"");
+    std::string sql = "SELECT * FROM \"" + m_osTableName + "\" WHERE " + fidCol + " = " + std::to_string(nFID);
+    
+    graal_isolatethread_t* thread = (graal_isolatethread_t*)m_poDS->GetThread();
+    long long conn = m_poDS->GetConnection();
+    
+    long long stmt = h2gis_prepare(thread, conn, (char*)sql.c_str());
+    if (!stmt) return nullptr;
+    
+    long long rs = h2gis_execute_prepared(thread, stmt);
+    if (!rs) { h2gis_close_query(thread, stmt); return nullptr; }
+    
+    long long sizeOut = 0;
+    void* buffer = h2gis_fetch_one(thread, rs, &sizeOut);
+    
+    if (!buffer || sizeOut <= 0) {
+        if (buffer) h2gis_free_result_buffer(thread, buffer);
+        h2gis_close_query(thread, rs);
+        h2gis_close_query(thread, stmt);
+        return nullptr;
+    }
+    
+    uint8_t* ptr = (uint8_t*)buffer;
+    
+    int32_t colCount;
+    memcpy(&colCount, ptr, 4); ptr += 4;
+    
+    int32_t rowCount;
+    memcpy(&rowCount, ptr, 4); ptr += 4;
+    
+    // If no rows returned, the feature doesn't exist
+    if (rowCount == 0) {
+        h2gis_free_result_buffer(thread, buffer);
+        h2gis_close_query(thread, rs);
+        h2gis_close_query(thread, stmt);
+        return nullptr;
+    }
+    
+    OGRFeature *poFeature = new OGRFeature(m_poFeatureDefn);
+    poFeature->SetFID(nFID);
+
+    // Read offsets
+    std::vector<int64_t> offsets(colCount);
+    for(int i=0; i<colCount; i++) {
+         memcpy(&offsets[i], ptr, 8); ptr += 8;
+    }
+    
+    uint8_t* base = (uint8_t*)buffer;
+    
+    // Iterate all columns, start from 0
+    for(int i=0; i<colCount; i++) {
+        uint8_t* colPtr = base + offsets[i];
+        
+        // Read column name
+        int32_t nameLen;
+        memcpy(&nameLen, colPtr, 4); colPtr += 4;
+        std::string colName((char*)colPtr, nameLen);
+        colPtr += nameLen;
+
+        int32_t type;
+        memcpy(&type, colPtr, 4); colPtr += 4;
+        
+        int32_t dataLen;
+        memcpy(&dataLen, colPtr, 4); colPtr += 4;
+        
+        // Skip FID column (already used for FID)
+        if (!m_osFIDCol.empty() && EQUAL(colName.c_str(), m_osFIDCol.c_str())) {
+            continue;
+        }
+        
+        if (type == H2GIS_TYPE_GEOM) {
+             if (dataLen > 0) {
+                 int32_t blobLen;
+                 memcpy(&blobLen, colPtr, 4); colPtr += 4;
+                 if (blobLen > 0) {
+                     OGRGeometry* poGeom = nullptr;
+                     if (OGRGeometryFactory::createFromWkb(colPtr, nullptr, &poGeom, blobLen) == OGRERR_NONE) {
+                         if (poGeom) {
+                             if (m_nSRID > 0) poGeom->assignSpatialReference(m_poFeatureDefn->GetGeomFieldDefn(0)->GetSpatialRef());
+                             poFeature->SetGeometryDirectly(poGeom);
+                         }
+                     }
+                 }
+             }
+        } else {
+            // Find field by name, simpler logic than sequence matching
+            int fieldIdx = m_poFeatureDefn->GetFieldIndex(colName.c_str());
+            
+            if (fieldIdx < 0) continue; 
+            if (m_ignoredFields.find(colName) != m_ignoredFields.end()) continue;
+
+            if (type == H2GIS_TYPE_INT) {
+                int32_t val; memcpy(&val, colPtr, 4);
+                poFeature->SetField(fieldIdx, val);
+            } else if (type == H2GIS_TYPE_LONG) {
+                int64_t val; memcpy(&val, colPtr, 8);
+                poFeature->SetField(fieldIdx, (GIntBig)val);
+            } else if (type == H2GIS_TYPE_DOUBLE) {
+                double val; memcpy(&val, colPtr, 8);
+                poFeature->SetField(fieldIdx, val);
+            } else if (type == H2GIS_TYPE_STRING) {
+                if (dataLen > 0) {
+                    int32_t strLen; memcpy(&strLen, colPtr, 4); colPtr += 4;
+                    if (strLen >= 0) {
+                        std::string s((char*)colPtr, strLen);
+                        poFeature->SetField(fieldIdx, s.c_str());
+                    }
+                }
+            } else if (type == H2GIS_TYPE_BOOL) {
+                 int8_t val; memcpy(&val, colPtr, 1);
+                 poFeature->SetField(fieldIdx, (int)val);
+            }
+        }
+    }
+
+    h2gis_free_result_buffer(thread, buffer);
+    h2gis_close_query(thread, rs);
+    h2gis_close_query(thread, stmt);
+
+    return poFeature;
+}
+
+int OGRH2GISLayer::TestCapability(const char * pszCap) const
 {
     if (EQUAL(pszCap, OLCCreateField)) return TRUE;
     if (EQUAL(pszCap, OLCSequentialWrite)) return TRUE;
     if (EQUAL(pszCap, OLCRandomWrite)) return TRUE;
     if (EQUAL(pszCap, OLCDeleteFeature)) return TRUE;
     if (EQUAL(pszCap, OLCStringsAsUTF8)) return TRUE;
-    // Tell QGIS we have fast feature count - return TRUE so QGIS uses our
-    // GetFeatureCount() which returns an estimate, instead of iterating all features
     if (EQUAL(pszCap, OLCFastFeatureCount)) return TRUE;
-    // Tell QGIS we have fast extent - return TRUE so QGIS uses our
-    // GetExtent() which returns cached/estimated extent, instead of iterating
     if (EQUAL(pszCap, OLCFastGetExtent)) return TRUE;
-    // Disable random read to prevent QGIS from trying to read features by FID during open
-    if (EQUAL(pszCap, OLCRandomRead)) return FALSE;
+    if (EQUAL(pszCap, OLCFastSpatialFilter)) return TRUE; // Spatial index supported
+    if (EQUAL(pszCap, OLCRandomRead)) return TRUE;        // GetFeature(FID) implemented
+    if (EQUAL(pszCap, OLCTransactions)) return TRUE;      // Transactions supported
+    if (EQUAL(pszCap, OLCIgnoreFields)) return TRUE;
     return FALSE;
 }
 
 void OGRH2GISLayer::SetSpatialFilter(OGRGeometry * poGeom) { OGRLayer::SetSpatialFilter(poGeom); ResetReading(); }
 void OGRH2GISLayer::SetSpatialFilter(int iGeom, OGRGeometry * poGeom) { OGRLayer::SetSpatialFilter(iGeom, poGeom); ResetReading(); }
+
+OGRErr OGRH2GISLayer::SetIgnoredFields(const char **papszFields)
+{
+    m_ignoredFields.clear();
+    if (papszFields) {
+        for (int i = 0; papszFields[i] != nullptr; i++) {
+            m_ignoredFields.insert(papszFields[i]);
+        }
+    }
+    OGRLayer::SetIgnoredFields(papszFields);
+    ResetReading();
+    return OGRERR_NONE;
+}
 
 GIntBig OGRH2GISLayer::GetFeatureCount(int bForce) 
 { 
@@ -771,14 +968,25 @@ OGRErr OGRH2GISLayer::ICreateFeature(OGRFeature *poFeature)
 {
     // INSERT INTO "Table" (Fields...) VALUES (Values...)
     // Use table name for SQL (not layer name which may be TABLE.GEOM_COL)
-    std::string sql = "INSERT INTO \"" + m_osTableName + "\" (";
+    
+    bool bReturnID = (poFeature->GetFID() == OGRNullFID);
+    std::string sql;
+    
+    const std::string fidColName = m_osFIDCol.empty() ? "ID" : m_osFIDCol;
+    if (bReturnID) {
+        // H2 syntax for returning keys: SELECT <FID> FROM FINAL TABLE (INSERT ...)
+        sql = "SELECT \"" + fidColName + "\" FROM FINAL TABLE (INSERT INTO \"" + m_osTableName + "\" (";
+    } else {
+        sql = "INSERT INTO \"" + m_osTableName + "\" (";
+    }
+    
     std::string values = "VALUES (";
     
     bool first = true;
     
     // 1. FID
     if (poFeature->GetFID() != OGRNullFID) {
-        sql += "ID";
+        sql += "\"" + fidColName + "\"";
         values += std::to_string(poFeature->GetFID());
         first = false;
     }
@@ -840,9 +1048,9 @@ OGRErr OGRH2GISLayer::ICreateFeature(OGRFeature *poFeature)
         
         OGRFieldDefn* poFDefn = m_poFeatureDefn->GetFieldDefn(i);
 
-        // Skip ID field as it is handled by the FID block above
+        // Skip FID field as it is handled by the FID block above
         // or auto-incremented if FID is NULL
-        if (EQUAL(poFDefn->GetNameRef(), "ID")) continue;
+        if (!m_osFIDCol.empty() && EQUAL(poFDefn->GetNameRef(), m_osFIDCol.c_str())) continue;
         
         if (!first) { sql += ", "; values += ", "; }
         
@@ -883,16 +1091,59 @@ OGRErr OGRH2GISLayer::ICreateFeature(OGRFeature *poFeature)
     }
     
     sql += ") " + values + ")";
+
+    if (bReturnID) {
+         sql += ")"; // Close FINAL TABLE parens
+    }
     
     graal_isolatethread_t* thread = (graal_isolatethread_t*)m_poDS->GetThread();
     long long conn = m_poDS->GetConnection();
     
-    if (h2gis_execute(thread, conn, (char*)sql.c_str()) < 0) {
-        return OGRERR_FAILURE;
+    if (bReturnID) {
+        long long hStmt = h2gis_prepare(thread, conn, (char*)sql.c_str());
+        if (!hStmt) return OGRERR_FAILURE;
+        long long hRS = h2gis_execute_prepared(thread, hStmt);
+        if (!hRS) { h2gis_close_query(thread, hStmt); return OGRERR_FAILURE; }
+        
+        long long sizeOut = 0;
+        void* pData = h2gis_fetch_one(thread, hRS, &sizeOut);
+        
+        if (pData && sizeOut > 0) {
+             uint8_t* ptr = (uint8_t*)pData;
+             // Skip col count (4 bytes)
+             ptr += 4; 
+             
+             // 1. Col Name
+             int32_t nameLen;
+             memcpy(&nameLen, ptr, 4); ptr += 4;
+             ptr += nameLen; 
+             
+             // 2. Type
+             int32_t type;
+             memcpy(&type, ptr, 4); ptr += 4;
+             
+             if (type == H2GIS_TYPE_LONG) {
+                 int64_t val;
+                 memcpy(&val, ptr, 8);
+                 poFeature->SetFID((GIntBig)val);
+             } else if (type == H2GIS_TYPE_INT) {
+                 int32_t val;
+                 memcpy(&val, ptr, 4);
+                 poFeature->SetFID((GIntBig)val);
+             }
+             
+             h2gis_free_result_buffer(thread, pData);
+        } else {
+             // Failed to get ID
+        }
+        h2gis_close_query(thread, hRS);
+        h2gis_close_query(thread, hStmt);
+        
+    } else {
+        if (h2gis_execute(thread, conn, (char*)sql.c_str()) < 0) {
+            return OGRERR_FAILURE;
+        }
     }
-    
-    // If successful and FID was Null, we might want to read back the generated Key?
-    // Not critical for now.
     
     return OGRERR_NONE; 
 }
@@ -962,8 +1213,8 @@ OGRErr OGRH2GISLayer::ISetFeature(OGRFeature *poFeature)
     for(int i=0; i<fieldCount; i++) {
         OGRFieldDefn* poFDefn = m_poFeatureDefn->GetFieldDefn(i);
         
-        // Skip ID field (it's the primary key)
-        if (EQUAL(poFDefn->GetNameRef(), "ID")) continue;
+        // Skip FID field (it's the primary key)
+        if (!m_osFIDCol.empty() && EQUAL(poFDefn->GetNameRef(), m_osFIDCol.c_str())) continue;
         
         if (!first) sql += ", ";
         
@@ -1006,7 +1257,8 @@ OGRErr OGRH2GISLayer::ISetFeature(OGRFeature *poFeature)
         first = false;
     }
     
-    sql += " WHERE _ROWID_ = " + std::to_string(poFeature->GetFID());
+    std::string fidCol = m_osFIDCol.empty() ? "_ROWID_" : ("\"" + m_osFIDCol + "\"");
+    sql += " WHERE " + fidCol + " = " + std::to_string(poFeature->GetFID());
     
     graal_isolatethread_t* thread = (graal_isolatethread_t*)m_poDS->GetThread();
     long long conn = m_poDS->GetConnection();
@@ -1022,8 +1274,9 @@ OGRErr OGRH2GISLayer::ISetFeature(OGRFeature *poFeature)
 OGRErr OGRH2GISLayer::DeleteFeature(GIntBig nFID)
 {
     // Use table name for SQL (not layer name which may be TABLE.GEOM_COL)
+    std::string fidCol = m_osFIDCol.empty() ? "_ROWID_" : ("\"" + m_osFIDCol + "\"");
     std::string sql = "DELETE FROM \"" + m_osTableName + 
-                      "\" WHERE _ROWID_ = " + std::to_string(nFID);
+                      "\" WHERE " + fidCol + " = " + std::to_string(nFID);
     
     graal_isolatethread_t* thread = (graal_isolatethread_t*)m_poDS->GetThread();
     long long conn = m_poDS->GetConnection();

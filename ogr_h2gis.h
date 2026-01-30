@@ -7,6 +7,9 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+
+constexpr const char* H2GIS_DRIVER_NAME = "H2GIS";
 
 // GraalVM access functions (use wrapper functions)
 inline graal_isolate_t* GetGlobalIsolate() { return h2gis_wrapper_get_isolate(); }
@@ -139,6 +142,7 @@ class OGRH2GISLayer final: public OGRLayer
     OGRFeatureDefn     *m_poFeatureDefn;
     std::string         m_osTableName;    // Original table name (for SQL queries)
     std::string         m_osGeomCol;      // Geometry column name for this layer
+    std::string         m_osFIDCol;       // FID column name (empty => use _ROWID_)
     int                 m_nSRID;          // Cached SRID
     
     // Iterator state
@@ -152,11 +156,13 @@ class OGRH2GISLayer final: public OGRLayer
     int                m_iNextRowInBatch;
     std::vector<uint8_t*> m_columnValues;   // Cursors to current row's data in buffer
     std::vector<int>      m_columnTypes;    // Types of the columns in the buffer
+    std::vector<std::string> m_columnNames; // Column names in batch
     
     GIntBig            m_iNextShapeId;
     GIntBig            m_nFeatureCount;  // Cached feature count (pre-filled from INFORMATION_SCHEMA)
     bool               m_bSchemaFetched; // True if schema was pre-filled in constructor
     bool               m_bResetPending;  // Lazy reset - don't prepare query until first read
+    std::unordered_set<std::string> m_ignoredFields;
 
     void               ClearStatement();
     void               PrepareQuery();
@@ -170,6 +176,7 @@ public:
                   const char *pszTableName,       // Original table name
                   const char *pszLayerName,       // Layer name (TABLE or TABLE.GEOM_COL)
                   const char *pszGeomCol,         // Geometry column name (empty for non-spatial)
+                  const char *pszFIDCol,          // FID column name (empty => use _ROWID_)
                   int nSrid,                      // SRID
                   OGRwkbGeometryType eGeomType,   // Geometry type from GEOMETRY_TYPE
                   GIntBig nRowCountEstimate,      // ROW_COUNT_ESTIMATE
@@ -179,13 +186,19 @@ public:
 
     virtual void        ResetReading() override;
     virtual OGRFeature *GetNextFeature() override;
+    virtual OGRFeature *GetFeature(GIntBig nFID) override;
     virtual OGRFeatureDefn *GetLayerDefn() override;
     const char*         GetGeomColumnName() const { return m_osGeomCol.c_str(); }
     const char*         GetTableName() const { return m_osTableName.c_str(); }
-    virtual int         TestCapability(const char *) override;
+    virtual int         TestCapability(const char *) const override;
     
+    // GDAL 2.3+ const correctness
+    const char*         GetFIDColumn() override { return m_osFIDCol.empty() ? "_ROWID_" : m_osFIDCol.c_str(); }
+    const char*         GetGeometryColumn() override { return m_osGeomCol.c_str(); }
+
     virtual void        SetSpatialFilter(OGRGeometry *) override;
     virtual void        SetSpatialFilter(int iGeomField, OGRGeometry *) override;
+    virtual OGRErr      SetIgnoredFields(const char **papszFields) override;
 
     virtual GIntBig     GetFeatureCount(int bForce) override;
     virtual OGRErr      GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
@@ -216,6 +229,7 @@ public:
     
     virtual int         GetLayerCount() override { return m_nLayers; }
     virtual OGRLayer   *GetLayer(int) override;
+    virtual OGRLayer   *GetLayerByName(const char *) override;
     
     virtual OGRLayer   *ExecuteSQL(const char *pszSQL, OGRGeometry *poSpatialFilter, const char *pszDialect) override;
     virtual void        ReleaseResultSet(OGRLayer *poLayer) override;

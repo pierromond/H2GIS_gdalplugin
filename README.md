@@ -96,6 +96,16 @@ for i in range(ds.GetLayerCount()):
     print(f"{layer.GetName()}: {layer.GetFeatureCount()} features")
 ```
 
+### Options de création de couche
+
+```bash
+# Nom de colonne géométrie, colonne FID, et index spatial
+ogr2ogr -f H2GIS /chemin/db.mv.db source.shp \
+    -lco GEOMETRY_NAME=GEOM \
+    -lco FID=ID \
+    -lco SPATIAL_INDEX=YES
+```
+
 ---
 
 ## 🔐 Authentification
@@ -138,3 +148,19 @@ GPLv3 License
 ---
 
 **Made with ❤️ by the NoiseModelling/H2GIS community** - *28 janvier 2026*
+
+## 🧪 Testing
+
+Run the test suite using `pytest`:
+
+```bash
+python -m venv .venv --system-site-packages
+source .venv/bin/activate
+pip install pytest
+GDAL_DRIVER_PATH=$PWD/build pytest tests/
+```
+
+## ⚠️ Limitations actuelles
+
+- Les champs DATE/TIME/DATETIME/BINARY peuvent être présents en écriture, mais la lecture n’est pas encore décodée.
+- Les résultats de `ExecuteSQL()` retournent la géométrie en **WKB brut** (pas de conversion EWKB→WKB).

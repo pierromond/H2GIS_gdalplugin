@@ -18,10 +18,19 @@ Makefile
 # IDE settings
 .vscode/
 .idea/
+copilot-instructions.md
 
 # Logs
 *.log
 
-# Documentation and Tests
-docs/
-tests/
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+coverage.xml
+*.egg-info/
+
+# OS
+.DS_Store

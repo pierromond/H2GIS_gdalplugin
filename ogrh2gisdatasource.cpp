@@ -7,17 +7,15 @@
 #include <set>
 #include <map>
 
+#include "cpl_error.h"
+
 #include <pthread.h>
 
 // Types and functions come from ogr_h2gis.h which includes h2gis.h and graal_isolate.h
 
 static void LogDebugDS(const char* msg) {
     if (CPLGetConfigOption("H2GIS_DEBUG", nullptr) != nullptr) {
-        FILE* f = fopen("/tmp/h2gis_driver.log", "a");
-        if (f) {
-            fprintf(f, "[H2GIS-DS] [Thread %lu] %s\n", (unsigned long)pthread_self(), msg);
-            fclose(f);
-        }
+        CPLDebug("H2GIS", "[DS][Thread %lu] %s", (unsigned long)pthread_self(), msg);
     }
 }
 
@@ -95,8 +93,254 @@ static int ParseColumnAsInt(uint8_t* colPtr, int64_t colOffset) {
     return 0;
 }
 
+class OGRH2GISResultLayer final: public OGRLayer
+{
+    OGRH2GISDataSource *m_poDS;
+    OGRFeatureDefn     *m_poFeatureDefn;
+    std::string         m_osSQL;
+    long long           m_nRS;
+    long long           m_hStmt;
+    void*               m_pBatchBuffer;
+    int                 m_nBatchRows;
+    int                 m_iNextRowInBatch;
+    GIntBig             m_iNextFID;
+    std::vector<uint8_t*> m_columnValues;
+    std::vector<int>      m_columnTypes;
+    std::vector<std::string> m_columnNames;
 
-// Remove duplicate declaration
+public:
+    OGRH2GISResultLayer(OGRH2GISDataSource *poDS, const char* pszSQL) 
+        : m_poDS(poDS), m_poFeatureDefn(new OGRFeatureDefn("Result")), 
+          m_osSQL(pszSQL), m_nRS(0), m_hStmt(0), 
+          m_pBatchBuffer(nullptr), m_nBatchRows(0), m_iNextRowInBatch(0), m_iNextFID(0)
+    {
+        SetDescription(m_poFeatureDefn->GetName());
+        m_poFeatureDefn->Reference();
+        
+        graal_isolatethread_t* thread = (graal_isolatethread_t*)m_poDS->GetThread();
+        long long conn = m_poDS->GetConnection();
+        m_hStmt = h2gis_prepare(thread, conn, (char*)m_osSQL.c_str());
+        if (m_hStmt) {
+            m_nRS = h2gis_execute_prepared(thread, m_hStmt);
+            if (m_nRS) BuildFeatureDefn();
+        }
+    }
+
+    ~OGRH2GISResultLayer() {
+        ClearStatement();
+        m_poFeatureDefn->Release();
+    }
+
+    void ClearStatement() {
+        graal_isolatethread_t* thread = (graal_isolatethread_t*)m_poDS->GetThread();
+        if (m_pBatchBuffer) h2gis_free_result_buffer(thread, m_pBatchBuffer);
+        if (m_nRS) h2gis_close_query(thread, m_nRS);
+        if (m_hStmt) h2gis_close_query(thread, m_hStmt);
+        m_nRS = 0; m_hStmt = 0; m_pBatchBuffer = nullptr;
+    }
+
+    void BuildFeatureDefn() {
+        graal_isolatethread_t* thread = (graal_isolatethread_t*)m_poDS->GetThread();
+        long long sizeOut = 0;
+        void* buf = h2gis_get_column_types(thread, m_nRS, &sizeOut);
+        if (buf && sizeOut > 0) {
+            uint8_t* ptr = (uint8_t*)buf;
+            int32_t colCount; memcpy(&colCount, ptr, 4); ptr += 4;
+
+            m_columnNames.clear();
+            m_columnNames.reserve(colCount);
+            
+            for(int i=0; i<colCount; i++) {
+                int32_t nameLen; memcpy(&nameLen, ptr, 4); ptr += 4;
+                std::string colName((char*)ptr, nameLen); ptr += nameLen;
+                int32_t type; memcpy(&type, ptr, 4); ptr += 4;
+                m_columnNames.push_back(colName);
+                
+                if (type == H2GIS_TYPE_GEOM) {
+                    m_poFeatureDefn->AddGeomFieldDefn(new OGRGeomFieldDefn(colName.c_str(), wkbUnknown));
+                } else {
+                    OGRFieldType ogrType = OFTString;
+                    if (type == H2GIS_TYPE_INT || type == H2GIS_TYPE_BOOL) ogrType = OFTInteger;
+                    else if (type == H2GIS_TYPE_LONG) ogrType = OFTInteger64;
+                    else if (type == H2GIS_TYPE_DOUBLE || type == H2GIS_TYPE_FLOAT) ogrType = OFTReal;
+                    else if (type == H2GIS_TYPE_DATE) ogrType = OFTDate;
+                    
+                    OGRFieldDefn field(colName.c_str(), ogrType);
+                    m_poFeatureDefn->AddFieldDefn(&field);
+                }
+            }
+            h2gis_free_result_buffer(thread, buf);
+        }
+    }
+
+    bool FetchNextBatch() {
+        if (!m_nRS) return false;
+
+        graal_isolatethread_t* thread = (graal_isolatethread_t*)m_poDS->GetThread();
+
+        if (m_pBatchBuffer) {
+            h2gis_free_result_buffer(thread, m_pBatchBuffer);
+            m_pBatchBuffer = nullptr;
+        }
+
+        long long sizeOut = 0;
+        m_pBatchBuffer = h2gis_fetch_batch(thread, m_nRS, 1000, &sizeOut);
+
+        if (!m_pBatchBuffer || sizeOut <= 0) return false;
+
+        uint8_t* ptr = (uint8_t*)m_pBatchBuffer;
+        int32_t colCount;
+        memcpy(&colCount, ptr, 4); ptr += 4;
+        memcpy(&m_nBatchRows, ptr, 4); ptr += 4;
+
+        if (m_nBatchRows <= 0) return false;
+
+        std::vector<int64_t> offsets(colCount);
+        for(int i=0; i<colCount; i++) {
+             memcpy(&offsets[i], ptr, 8); ptr += 8;
+        }
+
+        m_columnValues.resize(colCount);
+        m_columnTypes.resize(colCount);
+
+        uint8_t* base = (uint8_t*)m_pBatchBuffer;
+
+        for(int i=0; i<colCount; i++) {
+            uint8_t* colPtr = base + offsets[i];
+
+            int32_t nameLen;
+            memcpy(&nameLen, colPtr, 4); colPtr += 4;
+            std::string colName((char*)colPtr, nameLen); colPtr += nameLen;
+
+            int32_t type;
+            memcpy(&type, colPtr, 4); colPtr += 4;
+
+            int32_t totalDataLen;
+            memcpy(&totalDataLen, colPtr, 4); colPtr += 4;
+
+            if (m_columnNames.size() != static_cast<size_t>(colCount)) {
+                if (m_columnNames.size() < static_cast<size_t>(colCount)) m_columnNames.resize(colCount);
+                m_columnNames[i] = colName;
+            }
+
+            m_columnValues[i] = colPtr;
+            m_columnTypes[i] = type;
+        }
+
+        m_iNextRowInBatch = 0;
+        return true;
+    }
+
+    void ResetReading() override {
+        ClearStatement();
+        graal_isolatethread_t* thread = (graal_isolatethread_t*)m_poDS->GetThread();
+        long long conn = m_poDS->GetConnection();
+        m_hStmt = h2gis_prepare(thread, conn, (char*)m_osSQL.c_str());
+        if (m_hStmt) m_nRS = h2gis_execute_prepared(thread, m_hStmt);
+        m_nBatchRows = 0; m_iNextRowInBatch = 0; m_iNextFID = 0;
+    }
+
+    OGRFeatureDefn *GetLayerDefn() override { return m_poFeatureDefn; }
+    int TestCapability(const char *) override { return FALSE; }
+
+    OGRFeature *GetNextFeature() override {
+        if (!m_nRS) return nullptr;
+        graal_isolatethread_t* thread = (graal_isolatethread_t*)m_poDS->GetThread();
+
+        if (m_iNextRowInBatch >= m_nBatchRows) {
+            if (!FetchNextBatch()) return nullptr;
+        }
+
+        OGRFeature *poFeature = new OGRFeature(m_poFeatureDefn);
+
+        int iField = 0;
+        int iGeom = 0;
+        bool fidSet = false;
+
+        for(size_t iCol = 0; iCol < m_columnValues.size(); iCol++) {
+            int type = m_columnTypes[iCol];
+            uint8_t* &ptr = m_columnValues[iCol];
+
+            const std::string& colName = (iCol < m_columnNames.size()) ? m_columnNames[iCol] : std::string();
+
+            if (!colName.empty() && EQUAL(colName.c_str(), "_ROWID_") && type == H2GIS_TYPE_LONG) {
+                int64_t rowid;
+                memcpy(&rowid, ptr, 8); ptr += 8;
+                poFeature->SetFID(rowid);
+                fidSet = true;
+                continue;
+            }
+
+            if (type == H2GIS_TYPE_GEOM) {
+                int32_t len;
+                memcpy(&len, ptr, 4); ptr += 4;
+                if (len > 0) {
+                    OGRGeometry* poGeom = nullptr;
+                    OGRGeometryFactory::createFromWkb(ptr, nullptr, &poGeom, len);
+                    if (poGeom) poFeature->SetGeomFieldDirectly(iGeom, poGeom);
+                }
+                ptr += len;
+                iGeom++;
+
+            } else if (type == H2GIS_TYPE_STRING) {
+                int32_t len;
+                memcpy(&len, ptr, 4); ptr += 4;
+                if (len > 0) {
+                    std::string s((char*)ptr, len);
+                    poFeature->SetField(iField, s.c_str());
+                }
+                ptr += len;
+                iField++;
+
+            } else if (type == H2GIS_TYPE_INT) {
+                int32_t val;
+                memcpy(&val, ptr, 4); ptr += 4;
+                poFeature->SetField(iField, val);
+                iField++;
+
+            } else if (type == H2GIS_TYPE_LONG) {
+                int64_t val;
+                memcpy(&val, ptr, 8); ptr += 8;
+                poFeature->SetField(iField, (GIntBig)val);
+                iField++;
+
+            } else if (type == H2GIS_TYPE_DOUBLE) {
+                double val;
+                memcpy(&val, ptr, 8); ptr += 8;
+                poFeature->SetField(iField, val);
+                iField++;
+
+            } else if (type == H2GIS_TYPE_FLOAT) {
+                float val;
+                memcpy(&val, ptr, 4); ptr += 4;
+                poFeature->SetField(iField, (double)val);
+                iField++;
+
+            } else if (type == H2GIS_TYPE_BOOL) {
+                int8_t val;
+                memcpy(&val, ptr, 1); ptr += 1;
+                poFeature->SetField(iField, (int)val);
+                iField++;
+
+            } else {
+                int32_t len;
+                memcpy(&len, ptr, 4); ptr += 4;
+                if (len > 0) ptr += len;
+                iField++;
+            }
+        }
+
+        if (!fidSet) {
+            poFeature->SetFID(m_iNextFID);
+        }
+        m_iNextFID++;
+        m_iNextRowInBatch++;
+        return poFeature;
+    }
+};
+
+// Undo previous closing brace
+// static int LogDebugDS(const char* msg) {
 // static int LogDebugDS(const char* msg) {
 //    if (CPLGetConfigOption("H2GIS_DEBUG", nullptr)) {
 //        std::cerr << "OGRH2GISDataSource [" << pthread_self() << "]: " << msg << std::endl;
@@ -110,6 +354,9 @@ int OGRH2GISDataSource::Open( const char * pszFilename, int bUpdate,
     LogDebugDS("Open() Called");
     
     // Ignore bUpdate for now
+    if (!pszFilename || strlen(pszFilename) == 0) {
+        return FALSE;
+    }
     m_pszName = CPLStrdup( pszFilename );
     
     // Get thread handle from global GraalVM (initialized on main thread)
@@ -125,11 +372,6 @@ int OGRH2GISDataSource::Open( const char * pszFilename, int bUpdate,
     sprintf(ptrStr, "IsolateThread Ptr: %p", thread);
     LogDebugDS(ptrStr);
 
-    // ...
-    if (!EQUAL(CPLGetExtension(pszFilename), "db") && !EQUAL(CPLGetExtension(pszFilename), "mv.db")) {
-        return FALSE; 
-    }
-    
     // Parse URI for credentials: H2GIS:/path/db.mv.db?user=xxx&password=yyy
     // Also support GDAL-style: /path/db.mv.db|user=xxx|password=yyy
     std::string uriUser, uriPass;
@@ -183,6 +425,25 @@ int OGRH2GISDataSource::Open( const char * pszFilename, int bUpdate,
         }
     }
     
+    // Auto-append .mv.db if missing extension
+    const std::string mvSuffix = ".mv.db";
+    const std::string dbSuffix = ".db";
+    if (path.size() < mvSuffix.size() || path.compare(path.size() - mvSuffix.size(), mvSuffix.size(), mvSuffix) != 0) {
+        if (path.size() < dbSuffix.size() || path.compare(path.size() - dbSuffix.size(), dbSuffix.size(), dbSuffix) != 0) {
+            path += mvSuffix;
+        }
+    }
+
+    // Enforce .mv.db/.db extension after normalization
+    const bool hasMvDb = path.size() >= mvSuffix.size() && path.compare(path.size() - mvSuffix.size(), mvSuffix.size(), mvSuffix) == 0;
+    const bool hasDb = EQUAL(CPLGetExtension(path.c_str()), "db");
+    if (!hasDb && !hasMvDb) {
+        return FALSE;
+    }
+
+    CPLFree(m_pszName);
+    m_pszName = CPLStrdup(path.c_str());
+
     // Strip .mv.db for connection string
     const std::string suffix1 = ".mv.db";
     const std::string suffix2 = ".db";
@@ -474,6 +735,14 @@ int OGRH2GISDataSource::Open( const char * pszFilename, int bUpdate,
     for (const auto& kv : tables) {
         const std::string& tableName = kv.first;
         const TableInfo& ti = kv.second;
+
+        std::string fidColName;
+        for (const auto& col : ti.columns) {
+            if (EQUAL(col.name.c_str(), "ID")) {
+                fidColName = "ID";
+                break;
+            }
+        }
         
         if (ti.geomColumns.empty()) {
             // Non-spatial table: create single layer with table name
@@ -486,6 +755,7 @@ int OGRH2GISDataSource::Open( const char * pszFilename, int bUpdate,
                 tableName.c_str(),      // Table name for SQL
                 tableName.c_str(),      // Layer name (same as table)
                 "",                     // No geometry column
+                fidColName.c_str(),      // FID column
                 0,                      // No SRID
                 wkbNone,                // No geometry type
                 ti.rowCountEstimate, 
@@ -507,6 +777,7 @@ int OGRH2GISDataSource::Open( const char * pszFilename, int bUpdate,
                 tableName.c_str(),      // Table name for SQL
                 tableName.c_str(),      // Layer name (same as table)
                 geomCol.c_str(),        // Geometry column
+                fidColName.c_str(),      // FID column
                 srid,
                 geomType,
                 ti.rowCountEstimate,
@@ -530,6 +801,7 @@ int OGRH2GISDataSource::Open( const char * pszFilename, int bUpdate,
                     tableName.c_str(),      // Table name for SQL
                     layerName.c_str(),      // Layer name = TABLE.GEOM_COL
                     geomCol.c_str(),        // Geometry column for this layer
+                    fidColName.c_str(),      // FID column
                     srid,
                     geomType,
                     ti.rowCountEstimate,
@@ -567,11 +839,22 @@ OGRLayer *OGRH2GISDataSource::ICreateLayer(const char *pszName, OGRSpatialRefere
     // Validate Name
     std::string tableName(pszName); // Escape?
     
+    // Layer creation options
+    const char* pszGeomName = CSLFetchNameValue(papszOptions, "GEOMETRY_NAME");
+    const char* pszFIDCol = CSLFetchNameValue(papszOptions, "FID");
+    const char* pszSpatialIndex = CSLFetchNameValue(papszOptions, "SPATIAL_INDEX");
+
+    std::string geomCol = (pszGeomName && strlen(pszGeomName) > 0) ? pszGeomName : "GEOM";
+    std::string fidCol = (pszFIDCol && strlen(pszFIDCol) > 0) ? pszFIDCol : "ID";
+    bool bCreateSpatialIndex = true;
+    if (pszSpatialIndex && EQUAL(pszSpatialIndex, "NO")) {
+        bCreateSpatialIndex = false;
+    }
+
     // Construct SQL
     // Default to FID (Serial)
-    std::string sql = "CREATE TABLE \"" + tableName + "\" (ID INT AUTO_INCREMENT PRIMARY KEY";
+    std::string sql = "CREATE TABLE \"" + tableName + "\" (\"" + fidCol + "\" INT AUTO_INCREMENT PRIMARY KEY";
     
-    std::string geomCol = "GEOM"; // Default
     int srid = 0;
     if (poSpatialRef) {
          // Get EPSG
@@ -580,7 +863,7 @@ OGRLayer *OGRH2GISDataSource::ICreateLayer(const char *pszName, OGRSpatialRefere
     }
     
     if (eGType != wkbNone) {
-        sql += ", " + geomCol + " GEOMETRY"; 
+        sql += ", \"" + geomCol + "\" GEOMETRY"; 
         // Note: H2GIS supports extended type syntax e.g. GEOMETRY(POINT, 4326)
         // But keep it simple for now. 
     }
@@ -595,7 +878,7 @@ OGRLayer *OGRH2GISDataSource::ICreateLayer(const char *pszName, OGRSpatialRefere
     }
     
     // Force Spatial Index
-    if (eGType != wkbNone) {
+    if (eGType != wkbNone && bCreateSpatialIndex) {
         std::string idxSql = "CREATE SPATIAL INDEX ON \"" + tableName + "\"(\"" + geomCol + "\")";
         h2gis_execute(thread, m_hConnection, (char*)idxSql.c_str());
     }
@@ -612,6 +895,7 @@ OGRLayer *OGRH2GISDataSource::ICreateLayer(const char *pszName, OGRSpatialRefere
         tableName.c_str(),      // Table name for SQL
         tableName.c_str(),      // Layer name (same as table)
         geomCol.c_str(),        // Geometry column
+        fidCol.c_str(),         // FID column
         srid,
         eGType,                 // Use the requested geometry type
         0,                      // Row count (empty table)
@@ -647,22 +931,17 @@ OGRErr OGRH2GISDataSource::DeleteLayer(int iLayer)
 
 OGRLayer *OGRH2GISDataSource::ExecuteSQL(const char *pszSQL, OGRGeometry *poSpatialFilter, const char *pszDialect)
 {
-    graal_isolatethread_t* thread = (graal_isolatethread_t*)m_hThread;
-    
-    // Use h2gis_execute for DDL/Update (returns int update count or 0)
-    // But h2gis_execute doesn't return result set. 
-    // How to distinguish SELECT?
-    // Check keyword?
-    
-    if (STARTS_WITH_CI(pszSQL, "SELECT") || STARTS_WITH_CI(pszSQL, "CALL")) {
-         // Not fully implemented for fetching result sets in ExecuteSQL yet.
-         // Fallback to prepare/execute but we don't have a ResultLayer class yet.
-         // Returing nullptr effectively means "We handled it/executed it but no layer".
-         LogDebugDS("ExecuteSQL (Query): Execution without result layer support yet.");
+    // Handle SELECT/CALL/WITH queries returning a result set
+    if (STARTS_WITH_CI(pszSQL, "SELECT") || STARTS_WITH_CI(pszSQL, "CALL") || STARTS_WITH_CI(pszSQL, "WITH")) {
+         OGRH2GISResultLayer* poLayer = new OGRH2GISResultLayer(this, pszSQL);
+         if (poSpatialFilter != nullptr)
+             poLayer->SetSpatialFilter(poSpatialFilter);
+         return poLayer;
     }
     
-    // Try to run as Update/DDL
-    // Note: h2gis_execute uses connection handle and sql string.
+    graal_isolatethread_t* thread = (graal_isolatethread_t*)m_hThread;
+    
+    // Handle INSERT/UPDATE/DELETE/DDL
     int ret = h2gis_execute(thread, m_hConnection, (char*)pszSQL);
     if (ret < 0) {
         CPLError(CE_Failure, CPLE_AppDefined, "H2GIS: ExecuteSQL failed.");
@@ -673,6 +952,17 @@ OGRLayer *OGRH2GISDataSource::ExecuteSQL(const char *pszSQL, OGRGeometry *poSpat
 
 void OGRH2GISDataSource::ReleaseResultSet( OGRLayer * poLayer ) {
     delete poLayer;
+}
+
+OGRLayer* OGRH2GISDataSource::GetLayerByName(const char *pszName)
+{
+    if (!pszName) return nullptr;
+    for( int i = 0; i < m_nLayers; i++ )
+    {
+        if( EQUAL(m_papoLayers[i]->GetName(), pszName) )
+            return m_papoLayers[i];
+    }
+    return nullptr;
 }
 
 OGRErr OGRH2GISDataSource::StartTransaction(int bForce)
