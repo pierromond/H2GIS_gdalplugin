@@ -54,7 +54,15 @@ ogrinfo --formats | grep H2GIS
 ### Option C: Compilation depuis les sources
 
 ```bash
+# 1. Installer les dépendances (Ubuntu/Debian)
+sudo apt update
+sudo apt install -y build-essential cmake git gdal-bin libgdal-dev
+
+# 2. Récupérer les sources
+git clone https://github.com/pierromond/H2GIS_gdalplugin.git gdal-h2gis-driver
 cd gdal-h2gis-driver
+
+# 3. Compiler et installer
 mkdir -p build && cd build
 cmake ..
 make -j$(nproc)
