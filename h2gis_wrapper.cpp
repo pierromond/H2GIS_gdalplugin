@@ -19,9 +19,35 @@
 
 #include "cpl_error.h"  // For CPLDebug
 
+// ============================================================================
+// Platform abstraction layer
+// ============================================================================
+
+#if defined(_WIN32) || defined(_WIN64)
+#define H2GIS_PLATFORM_WINDOWS 1
+#include <windows.h>
+#include <io.h>
+typedef HMODULE h2gis_lib_handle_t;
+typedef HANDLE h2gis_thread_t;
+#define H2GIS_LIB_EXT ".dll"
+#elif defined(__APPLE__) && defined(__MACH__)
+#define H2GIS_PLATFORM_MACOS 1
 #include <dlfcn.h>
 #include <unistd.h>
 #include <pthread.h>
+typedef void *h2gis_lib_handle_t;
+typedef pthread_t h2gis_thread_t;
+#define H2GIS_LIB_EXT ".dylib"
+#else
+#define H2GIS_PLATFORM_LINUX 1
+#include <dlfcn.h>
+#include <unistd.h>
+#include <pthread.h>
+typedef void *h2gis_lib_handle_t;
+typedef pthread_t h2gis_thread_t;
+#define H2GIS_LIB_EXT ".so"
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -32,6 +58,181 @@
 #include <queue>
 #include <functional>
 #include <future>
+
+// Platform abstraction functions - forward declarations
+static h2gis_lib_handle_t h2gis_load_library(const char *path);
+static void *h2gis_get_symbol(h2gis_lib_handle_t handle, const char *name);
+static void h2gis_free_library(h2gis_lib_handle_t handle);
+static const char *h2gis_get_load_error(void);
+static int h2gis_file_exists(const char *path);
+static void h2gis_sleep_ms(unsigned int milliseconds);
+static int h2gis_create_thread_with_stack(h2gis_thread_t *thread,
+                                          size_t stack_size,
+                                          void *(*func)(void *), void *arg);
+static int h2gis_join_thread(h2gis_thread_t thread);
+static const char **h2gis_get_library_fallback_paths(void);
+
+// ============================================================================
+// Platform abstraction implementations
+// ============================================================================
+
+#if defined(H2GIS_PLATFORM_WINDOWS)
+
+static h2gis_lib_handle_t h2gis_load_library(const char *path)
+{
+    return LoadLibraryA(path);
+}
+
+static void *h2gis_get_symbol(h2gis_lib_handle_t handle, const char *name)
+{
+    return (void *)GetProcAddress(handle, name);
+}
+
+static void h2gis_free_library(h2gis_lib_handle_t handle)
+{
+    if (handle)
+        FreeLibrary(handle);
+}
+
+static const char *h2gis_get_load_error(void)
+{
+    static char buf[256];
+    DWORD err = GetLastError();
+    FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                   NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), buf,
+                   sizeof(buf), NULL);
+    return buf;
+}
+
+static int h2gis_file_exists(const char *path)
+{
+    return _access(path, 0) == 0;
+}
+
+static void h2gis_sleep_ms(unsigned int milliseconds)
+{
+    Sleep(milliseconds);
+}
+
+static int h2gis_create_thread_with_stack(h2gis_thread_t *thread,
+                                          size_t stack_size,
+                                          void *(*func)(void *), void *arg)
+{
+    // Windows CreateThread with custom stack size
+    // Note: CreateThread expects LPTHREAD_START_ROUTINE which is DWORD (*)(LPVOID)
+    // We cast and hope the calling convention is compatible (it usually is on x64)
+    *thread = CreateThread(NULL, stack_size, (LPTHREAD_START_ROUTINE)func, arg,
+                           0, NULL);
+    return (*thread == NULL) ? -1 : 0;
+}
+
+static int h2gis_join_thread(h2gis_thread_t thread)
+{
+    if (thread == NULL)
+        return -1;
+    WaitForSingleObject(thread, INFINITE);
+    CloseHandle(thread);
+    return 0;
+}
+
+static const char **h2gis_get_library_fallback_paths(void)
+{
+    static const char *paths[] = {
+        // Relative to executable
+        "h2gis.dll",
+        // Python h2gis package paths (common Windows locations)
+        NULL  // Sentinel
+    };
+    return paths;
+}
+
+#else  // Unix-like (Linux and macOS)
+
+static h2gis_lib_handle_t h2gis_load_library(const char *path)
+{
+    return dlopen(path, RTLD_LAZY | RTLD_GLOBAL);
+}
+
+static void *h2gis_get_symbol(h2gis_lib_handle_t handle, const char *name)
+{
+    return dlsym(handle, name);
+}
+
+static void h2gis_free_library(h2gis_lib_handle_t handle)
+{
+    if (handle)
+        dlclose(handle);
+}
+
+static const char *h2gis_get_load_error(void)
+{
+    return dlerror();
+}
+
+static int h2gis_file_exists(const char *path)
+{
+    return access(path, F_OK) == 0;
+}
+
+static void h2gis_sleep_ms(unsigned int milliseconds)
+{
+    usleep(milliseconds * 1000);
+}
+
+static int h2gis_create_thread_with_stack(h2gis_thread_t *thread,
+                                          size_t stack_size,
+                                          void *(*func)(void *), void *arg)
+{
+    pthread_attr_t attr;
+    if (pthread_attr_init(&attr) != 0)
+        return -1;
+    if (pthread_attr_setstacksize(&attr, stack_size) != 0)
+    {
+        pthread_attr_destroy(&attr);
+        return -1;
+    }
+    int ret = pthread_create(thread, &attr, func, NULL);
+    pthread_attr_destroy(&attr);
+    return ret;
+}
+
+static int h2gis_join_thread(h2gis_thread_t thread)
+{
+    return pthread_join(thread, NULL);
+}
+
+#if defined(H2GIS_PLATFORM_MACOS)
+
+static const char **h2gis_get_library_fallback_paths(void)
+{
+    static const char *paths[] = {
+        // Python h2gis package path (typical venv location)
+        "libh2gis.dylib",
+        // Homebrew locations
+        "/usr/local/lib/libh2gis.dylib",
+        "/opt/homebrew/lib/libh2gis.dylib",
+        NULL  // Sentinel
+    };
+    return paths;
+}
+
+#else  // Linux
+
+static const char **h2gis_get_library_fallback_paths(void)
+{
+    static const char *paths[] = {
+        // System library paths
+        "/usr/lib/libh2gis.so",
+        "/usr/local/lib/libh2gis.so",
+        // Python h2gis package (site-packages)
+        NULL  // Sentinel
+    };
+    return paths;
+}
+
+#endif  // H2GIS_PLATFORM_MACOS
+
+#endif  // H2GIS_PLATFORM_WINDOWS
 
 // Debug logging routed to CPLDebug
 #define debug_log(fmt, ...) CPLDebug("H2GIS_WRAPPER", fmt, ##__VA_ARGS__)
@@ -93,13 +294,13 @@ typedef int (*fn_graal_detach_thread)(graal_isolatethread_t *);
 static std::mutex g_init_mutex;
 static std::atomic<bool> g_initialized{false};
 static std::atomic<bool> g_shutdown{false};
-static void *g_h2gis_handle = nullptr;
+static h2gis_lib_handle_t g_h2gis_handle = nullptr;
 static graal_isolate_t *g_isolate = nullptr;
 static graal_isolatethread_t *g_worker_thread =
     nullptr;  // Thread handle for the worker
 
 // Worker thread state
-static pthread_t g_worker_pthread;
+static h2gis_thread_t g_worker_thread_handle;
 static std::mutex g_queue_mutex;
 static std::condition_variable g_queue_cv;
 static std::queue<std::function<void()>> g_task_queue;
@@ -189,29 +390,24 @@ static void *worker_thread_func(void *arg)
     // Load library and create isolate HERE (on the large-stack thread)
     const char *lib_path = getenv("H2GIS_NATIVE_LIB");
 
-    // Standard system paths for libh2gis.so
-    // Users can override with H2GIS_NATIVE_LIB environment variable
-    const char *fallbacks[] = {"/usr/lib/libh2gis.so",
-                               "/usr/local/lib/libh2gis.so",
-                               "/usr/lib/x86_64-linux-gnu/libh2gis.so",
-                               "./libh2gis.so",  // Current directory
-                               nullptr};
+    // Get platform-specific fallback paths
+    const char **fallbacks = h2gis_get_library_fallback_paths();
 
     if (lib_path)
     {
         debug_log("worker_thread_func: Loading explicit H2GIS_NATIVE_LIB: %s",
                   lib_path);
-        g_h2gis_handle = dlopen(lib_path, RTLD_NOW | RTLD_GLOBAL);
+        g_h2gis_handle = h2gis_load_library(lib_path);
     }
     else
     {
         for (int i = 0; fallbacks[i]; i++)
         {
-            if (access(fallbacks[i], F_OK) == 0)
+            if (h2gis_file_exists(fallbacks[i]))
             {
                 debug_log("worker_thread_func: Found library at %s",
                           fallbacks[i]);
-                g_h2gis_handle = dlopen(fallbacks[i], RTLD_NOW | RTLD_GLOBAL);
+                g_h2gis_handle = h2gis_load_library(fallbacks[i]);
                 if (g_h2gis_handle)
                 {
                     lib_path = fallbacks[i];
@@ -223,7 +419,8 @@ static void *worker_thread_func(void *arg)
 
     if (!g_h2gis_handle)
     {
-        debug_log("worker_thread_func: dlopen failed: %s", dlerror());
+        debug_log("worker_thread_func: Library load failed: %s",
+                  h2gis_get_load_error());
         return (void *)-1;
     }
 
@@ -231,71 +428,85 @@ static void *worker_thread_func(void *arg)
 
     // Resolve GraalVM functions
     fp_graal_create_isolate =
-        (fn_graal_create_isolate)dlsym(g_h2gis_handle, "graal_create_isolate");
-    fp_graal_get_current_thread = (fn_graal_get_current_thread)dlsym(
+        (fn_graal_create_isolate)h2gis_get_symbol(g_h2gis_handle,
+                                                   "graal_create_isolate");
+    fp_graal_get_current_thread = (fn_graal_get_current_thread)h2gis_get_symbol(
         g_h2gis_handle, "graal_get_current_thread");
     fp_graal_attach_thread =
-        (fn_graal_attach_thread)dlsym(g_h2gis_handle, "graal_attach_thread");
+        (fn_graal_attach_thread)h2gis_get_symbol(g_h2gis_handle,
+                                                  "graal_attach_thread");
     fp_graal_detach_thread =
-        (fn_graal_detach_thread)dlsym(g_h2gis_handle, "graal_detach_thread");
+        (fn_graal_detach_thread)h2gis_get_symbol(g_h2gis_handle,
+                                                  "graal_detach_thread");
 
     if (!fp_graal_create_isolate)
     {
         debug_log("worker_thread_func: Failed to resolve graal_create_isolate");
-        dlclose(g_h2gis_handle);
+        h2gis_free_library(g_h2gis_handle);
         g_h2gis_handle = nullptr;
         return (void *)-1;
     }
 
     // Resolve H2GIS functions
     fp_h2gis_get_last_error =
-        (fn_h2gis_get_last_error)dlsym(g_h2gis_handle, "h2gis_get_last_error");
-    fp_h2gis_connect = (fn_h2gis_connect)dlsym(g_h2gis_handle, "h2gis_connect");
-    fp_h2gis_load = (fn_h2gis_load)dlsym(g_h2gis_handle, "h2gis_load");
-    fp_h2gis_fetch = (fn_h2gis_fetch)dlsym(g_h2gis_handle, "h2gis_fetch");
-    fp_h2gis_execute = (fn_h2gis_execute)dlsym(g_h2gis_handle, "h2gis_execute");
-    fp_h2gis_prepare = (fn_h2gis_prepare)dlsym(g_h2gis_handle, "h2gis_prepare");
+        (fn_h2gis_get_last_error)h2gis_get_symbol(g_h2gis_handle,
+                                                   "h2gis_get_last_error");
+    fp_h2gis_connect =
+        (fn_h2gis_connect)h2gis_get_symbol(g_h2gis_handle, "h2gis_connect");
+    fp_h2gis_load =
+        (fn_h2gis_load)h2gis_get_symbol(g_h2gis_handle, "h2gis_load");
+    fp_h2gis_fetch =
+        (fn_h2gis_fetch)h2gis_get_symbol(g_h2gis_handle, "h2gis_fetch");
+    fp_h2gis_execute =
+        (fn_h2gis_execute)h2gis_get_symbol(g_h2gis_handle, "h2gis_execute");
+    fp_h2gis_prepare =
+        (fn_h2gis_prepare)h2gis_get_symbol(g_h2gis_handle, "h2gis_prepare");
     fp_h2gis_bind_double =
-        (fn_h2gis_bind_double)dlsym(g_h2gis_handle, "h2gis_bind_double");
+        (fn_h2gis_bind_double)h2gis_get_symbol(g_h2gis_handle,
+                                                "h2gis_bind_double");
     fp_h2gis_bind_int =
-        (fn_h2gis_bind_int)dlsym(g_h2gis_handle, "h2gis_bind_int");
+        (fn_h2gis_bind_int)h2gis_get_symbol(g_h2gis_handle, "h2gis_bind_int");
     fp_h2gis_bind_long =
-        (fn_h2gis_bind_long)dlsym(g_h2gis_handle, "h2gis_bind_long");
+        (fn_h2gis_bind_long)h2gis_get_symbol(g_h2gis_handle, "h2gis_bind_long");
     fp_h2gis_bind_string =
-        (fn_h2gis_bind_string)dlsym(g_h2gis_handle, "h2gis_bind_string");
+        (fn_h2gis_bind_string)h2gis_get_symbol(g_h2gis_handle,
+                                                "h2gis_bind_string");
     fp_h2gis_bind_blob =
-        (fn_h2gis_bind_blob)dlsym(g_h2gis_handle, "h2gis_bind_blob");
-    fp_h2gis_execute_prepared_update = (fn_h2gis_execute_prepared_update)dlsym(
-        g_h2gis_handle, "h2gis_execute_prepared_update");
-    fp_h2gis_execute_prepared = (fn_h2gis_execute_prepared)dlsym(
+        (fn_h2gis_bind_blob)h2gis_get_symbol(g_h2gis_handle, "h2gis_bind_blob");
+    fp_h2gis_execute_prepared_update =
+        (fn_h2gis_execute_prepared_update)h2gis_get_symbol(
+            g_h2gis_handle, "h2gis_execute_prepared_update");
+    fp_h2gis_execute_prepared = (fn_h2gis_execute_prepared)h2gis_get_symbol(
         g_h2gis_handle, "h2gis_execute_prepared");
     fp_h2gis_close_query =
-        (fn_h2gis_close_query)dlsym(g_h2gis_handle, "h2gis_close_query");
-    fp_h2gis_close_connection = (fn_h2gis_close_connection)dlsym(
+        (fn_h2gis_close_query)h2gis_get_symbol(g_h2gis_handle,
+                                                "h2gis_close_query");
+    fp_h2gis_close_connection = (fn_h2gis_close_connection)h2gis_get_symbol(
         g_h2gis_handle, "h2gis_close_connection");
     fp_h2gis_delete_database_and_close =
-        (fn_h2gis_delete_database_and_close)dlsym(
+        (fn_h2gis_delete_database_and_close)h2gis_get_symbol(
             g_h2gis_handle, "h2gis_delete_database_and_close");
     fp_h2gis_fetch_all =
-        (fn_h2gis_fetch_all)dlsym(g_h2gis_handle, "h2gis_fetch_all");
+        (fn_h2gis_fetch_all)h2gis_get_symbol(g_h2gis_handle, "h2gis_fetch_all");
     fp_h2gis_fetch_one =
-        (fn_h2gis_fetch_one)dlsym(g_h2gis_handle, "h2gis_fetch_one");
+        (fn_h2gis_fetch_one)h2gis_get_symbol(g_h2gis_handle, "h2gis_fetch_one");
     fp_h2gis_fetch_batch =
-        (fn_h2gis_fetch_batch)dlsym(g_h2gis_handle, "h2gis_fetch_batch");
-    fp_h2gis_get_column_types = (fn_h2gis_get_column_types)dlsym(
+        (fn_h2gis_fetch_batch)h2gis_get_symbol(g_h2gis_handle,
+                                                "h2gis_fetch_batch");
+    fp_h2gis_get_column_types = (fn_h2gis_get_column_types)h2gis_get_symbol(
         g_h2gis_handle, "h2gis_get_column_types");
-    fp_h2gis_get_metadata_json = (fn_h2gis_get_metadata_json)dlsym(
+    fp_h2gis_get_metadata_json = (fn_h2gis_get_metadata_json)h2gis_get_symbol(
         g_h2gis_handle, "h2gis_get_metadata_json");
-    fp_h2gis_free_result_set = (fn_h2gis_free_result_set)dlsym(
+    fp_h2gis_free_result_set = (fn_h2gis_free_result_set)h2gis_get_symbol(
         g_h2gis_handle, "h2gis_free_result_set");
-    fp_h2gis_free_result_buffer = (fn_h2gis_free_result_buffer)dlsym(
+    fp_h2gis_free_result_buffer = (fn_h2gis_free_result_buffer)h2gis_get_symbol(
         g_h2gis_handle, "h2gis_free_result_buffer");
 
     if (!fp_h2gis_connect || !fp_h2gis_execute || !fp_h2gis_prepare)
     {
         debug_log(
             "worker_thread_func: Failed to resolve required H2GIS functions");
-        dlclose(g_h2gis_handle);
+        h2gis_free_library(g_h2gis_handle);
         g_h2gis_handle = nullptr;
         return (void *)-1;
     }
@@ -309,7 +520,7 @@ static void *worker_thread_func(void *arg)
     if (rc != 0)
     {
         debug_log("worker_thread_func: graal_create_isolate failed: %d", rc);
-        dlclose(g_h2gis_handle);
+        h2gis_free_library(g_h2gis_handle);
         g_h2gis_handle = nullptr;
         return (void *)-1;
     }
@@ -381,31 +592,19 @@ extern "C" int h2gis_wrapper_init(void)
 
     debug_log("h2gis_wrapper_init: Creating worker thread with 64MB stack...");
 
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
     size_t stack_size = 64 * 1024 * 1024;  // 64 MB
-    if (pthread_attr_setstacksize(&attr, stack_size) != 0)
-    {
-        debug_log("h2gis_wrapper_init: Failed to set stack size");
-        pthread_attr_destroy(&attr);
-        return -1;
-    }
-
-    if (pthread_create(&g_worker_pthread, &attr, worker_thread_func, nullptr) !=
-        0)
+    if (h2gis_create_thread_with_stack(&g_worker_thread_handle, stack_size,
+                                        worker_thread_func, nullptr) != 0)
     {
         debug_log("h2gis_wrapper_init: Failed to create worker thread");
-        pthread_attr_destroy(&attr);
         return -1;
     }
-
-    pthread_attr_destroy(&attr);
 
     // Wait for initialization to complete (with timeout)
     int wait_count = 0;
     while (!g_initialized.load() && wait_count < 100)
-    {                    // 10 second timeout
-        usleep(100000);  // 100ms
+    {  // 10 second timeout
+        h2gis_sleep_ms(100);
         wait_count++;
     }
 
@@ -414,7 +613,7 @@ extern "C" int h2gis_wrapper_init(void)
         debug_log("h2gis_wrapper_init: Timeout waiting for worker thread init");
         g_shutdown.store(true);
         g_queue_cv.notify_all();
-        pthread_join(g_worker_pthread, nullptr);
+        h2gis_join_thread(g_worker_thread_handle);
         return -1;
     }
 
@@ -467,11 +666,11 @@ extern "C" void h2gis_wrapper_shutdown(void)
     g_queue_cv.notify_all();
 
     debug_log("h2gis_wrapper_shutdown: Waiting for worker thread to exit...");
-    pthread_join(g_worker_pthread, nullptr);
+    h2gis_join_thread(g_worker_thread_handle);
 
     if (g_h2gis_handle)
     {
-        dlclose(g_h2gis_handle);
+        h2gis_free_library(g_h2gis_handle);
         g_h2gis_handle = nullptr;
     }
 
