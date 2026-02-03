@@ -826,7 +826,9 @@ int OGRH2GISDataSource::TestCapability( const char * pszCap )
     return FALSE;
 }
 
-#if GDAL_VERSION_NUM >= 3050000
+#if GDAL_VERSION_NUM >= 3090000
+OGRLayer *OGRH2GISDataSource::ICreateLayer(const char *pszName, const OGRSpatialReference *poSpatialRef, OGRwkbGeometryType eGType, CSLConstList papszOptions)
+#elif GDAL_VERSION_NUM >= 3050000
 OGRLayer *OGRH2GISDataSource::ICreateLayer(const char *pszName, const OGRSpatialReference *poSpatialRef, OGRwkbGeometryType eGType, char **papszOptions)
 #else
 OGRLayer *OGRH2GISDataSource::ICreateLayer(const char *pszName, OGRSpatialReference *poSpatialRef, OGRwkbGeometryType eGType, char **papszOptions)

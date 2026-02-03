@@ -681,7 +681,11 @@ int OGRH2GISLayer::TestCapability(const char * pszCap)
 void OGRH2GISLayer::SetSpatialFilter(OGRGeometry * poGeom) { OGRLayer::SetSpatialFilter(poGeom); ResetReading(); }
 void OGRH2GISLayer::SetSpatialFilter(int iGeom, OGRGeometry * poGeom) { OGRLayer::SetSpatialFilter(iGeom, poGeom); ResetReading(); }
 
+#if GDAL_VERSION_NUM >= 3090000
+OGRErr OGRH2GISLayer::SetIgnoredFields(const char* const* papszFields)
+#else
 OGRErr OGRH2GISLayer::SetIgnoredFields(const char **papszFields)
+#endif
 {
     m_ignoredFields.clear();
     if (papszFields) {
@@ -927,7 +931,11 @@ OGRErr OGRH2GISLayer::GetExtent(int iGeomField, OGREnvelope *psExtent, int bForc
     return OGRERR_NONE;
 }
 
+#if GDAL_VERSION_NUM >= 3090000
+OGRErr OGRH2GISLayer::CreateField(const OGRFieldDefn *poField, int bApproxOK)
+#else
 OGRErr OGRH2GISLayer::CreateField(OGRFieldDefn *poField, int bApproxOK)
+#endif
 {
     // ALTER TABLE ADD COLUMN
     // Use table name for SQL (not layer name which may be TABLE.GEOM_COL)

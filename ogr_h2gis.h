@@ -198,7 +198,12 @@ public:
 
     virtual void        SetSpatialFilter(OGRGeometry *) override;
     virtual void        SetSpatialFilter(int iGeomField, OGRGeometry *) override;
+
+#if GDAL_VERSION_NUM >= 3090000
+    virtual OGRErr      SetIgnoredFields(const char* const* papszFields) override;
+#else
     virtual OGRErr      SetIgnoredFields(const char **papszFields) override;
+#endif
 
     virtual GIntBig     GetFeatureCount(int bForce) override;
     virtual OGRErr      GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
@@ -207,7 +212,12 @@ public:
     virtual OGRErr      ICreateFeature(OGRFeature *poFeature) override;
     virtual OGRErr      ISetFeature(OGRFeature *poFeature) override;
     virtual OGRErr      DeleteFeature(GIntBig nFID) override;
+
+#if GDAL_VERSION_NUM >= 3090000
+    virtual OGRErr      CreateField(const OGRFieldDefn *poField, int bApproxOK = TRUE) override;
+#else
     virtual OGRErr      CreateField(OGRFieldDefn *poField, int bApproxOK = TRUE) override;
+#endif
 };
 
 class OGRH2GISDataSource final: public GDALDataset
@@ -234,7 +244,9 @@ public:
     virtual OGRLayer   *ExecuteSQL(const char *pszSQL, OGRGeometry *poSpatialFilter, const char *pszDialect) override;
     virtual void        ReleaseResultSet(OGRLayer *poLayer) override;
 
-#if GDAL_VERSION_NUM >= 3050000
+#if GDAL_VERSION_NUM >= 3090000
+    virtual OGRLayer   *ICreateLayer(const char *pszName, const OGRSpatialReference *poSpatialRef = nullptr, OGRwkbGeometryType eGType = wkbUnknown, CSLConstList papszOptions = nullptr) override;
+#elif GDAL_VERSION_NUM >= 3050000
     virtual OGRLayer   *ICreateLayer(const char *pszName, const OGRSpatialReference *poSpatialRef = nullptr, OGRwkbGeometryType eGType = wkbUnknown, char **papszOptions = nullptr) override;
 #else
     virtual OGRLayer   *ICreateLayer(const char *pszName, OGRSpatialReference *poSpatialRef = nullptr, OGRwkbGeometryType eGType = wkbUnknown, char **papszOptions = nullptr) override;
