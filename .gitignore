@@ -18,7 +18,6 @@ Makefile
 # IDE settings
 .vscode/
 .idea/
-copilot-instructions.md
 
 # Logs
 *.log
