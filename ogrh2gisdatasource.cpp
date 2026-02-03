@@ -200,8 +200,8 @@ class OGRH2GISResultLayer final : public OGRLayer
 
                 if (type == H2GIS_TYPE_GEOM)
                 {
-                    m_poFeatureDefn->AddGeomFieldDefn(
-                        new OGRGeomFieldDefn(colName.c_str(), wkbUnknown));
+                    OGRGeomFieldDefn gfd(colName.c_str(), wkbUnknown);
+                    m_poFeatureDefn->AddGeomFieldDefn(&gfd);
                 }
                 else
                 {

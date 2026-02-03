@@ -355,6 +355,12 @@ void OGRH2GISLayer::PrepareQuery()
     if (m_hStmt)
     {
         m_nRS = h2gis_execute_prepared(thread, m_hStmt);
+        if (!m_nRS)
+        {
+            // Execute failed - close the prepared statement to avoid leak
+            h2gis_close_query(thread, m_hStmt);
+            m_hStmt = 0;
+        }
     }
 }
 
