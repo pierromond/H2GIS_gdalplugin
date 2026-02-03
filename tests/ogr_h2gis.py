@@ -1,4 +1,6 @@
 #!/usr/bin/env pytest
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2024-2026 H2GIS Team
 ###############################################################################
 #
 # Project:  GDAL/OGR Test Suite
@@ -8,6 +10,9 @@
 
 import pytest
 from osgeo import ogr, osr, gdal
+
+# Skip all tests if H2GIS driver is not available
+pytestmark = pytest.mark.require_driver("H2GIS")
 
 def test_ogr_h2gis_open_create(h2gis_ds):
     assert h2gis_ds is not None
@@ -89,3 +94,143 @@ def test_ogr_h2gis_execute_sql_basic(h2gis_ds):
     assert sql_lyr is not None
     h2gis_ds.ReleaseResultSet(sql_lyr)
 
+
+def test_ogr_h2gis_srid_crs_roundtrip(h2gis_ds):
+    """Test that SRID/CRS is preserved during create and read."""
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    
+    lyr = h2gis_ds.CreateLayer("srid_test", srs=srs, geom_type=ogr.wkbPoint)
+    assert lyr is not None
+    
+    # Create a feature with geometry
+    feat = ogr.Feature(lyr.GetLayerDefn())
+    geom = ogr.CreateGeometryFromWkt("POINT (2.35 48.85)")  # Paris
+    geom.AssignSpatialReference(srs)
+    feat.SetGeometry(geom)
+    assert lyr.CreateFeature(feat) == 0
+    
+    # Read back and verify SRID
+    lyr.ResetReading()
+    feat_read = lyr.GetNextFeature()
+    assert feat_read is not None
+    
+    geom_read = feat_read.GetGeometryRef()
+    assert geom_read is not None
+    # SRID should be preserved in geometry
+    assert abs(geom_read.GetX() - 2.35) < 0.001
+    assert abs(geom_read.GetY() - 48.85) < 0.001
+
+
+def test_ogr_h2gis_geometry_types(h2gis_ds):
+    """Test that different geometry types are correctly preserved."""
+    test_cases = [
+        ("geom_point", ogr.wkbPoint, "POINT (1 2)"),
+        ("geom_line", ogr.wkbLineString, "LINESTRING (0 0, 1 1, 2 2)"),
+        ("geom_poly", ogr.wkbPolygon, "POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))"),
+        ("geom_mpoint", ogr.wkbMultiPoint, "MULTIPOINT ((0 0), (1 1))"),
+    ]
+    
+    for name, geom_type, wkt in test_cases:
+        lyr = h2gis_ds.CreateLayer(name, geom_type=geom_type)
+        assert lyr is not None, f"Failed to create layer {name}"
+        
+        feat = ogr.Feature(lyr.GetLayerDefn())
+        geom = ogr.CreateGeometryFromWkt(wkt)
+        feat.SetGeometry(geom)
+        assert lyr.CreateFeature(feat) == 0, f"Failed to create feature in {name}"
+        
+        lyr.ResetReading()
+        feat_read = lyr.GetNextFeature()
+        assert feat_read is not None, f"Failed to read feature from {name}"
+        
+        geom_read = feat_read.GetGeometryRef()
+        assert geom_read is not None, f"No geometry read from {name}"
+
+
+def test_ogr_h2gis_attribute_filter(h2gis_ds):
+    """Test SetAttributeFilter push-down to H2GIS."""
+    lyr = h2gis_ds.CreateLayer("attr_filter", geom_type=ogr.wkbPoint)
+    lyr.CreateField(ogr.FieldDefn("population", ogr.OFTInteger))
+    lyr.CreateField(ogr.FieldDefn("name", ogr.OFTString))
+    
+    # Insert test features
+    test_data = [
+        (100, "small_city"),
+        (500000, "medium_city"),
+        (2000000, "large_city"),
+        (10000000, "mega_city"),
+    ]
+    
+    for pop, name in test_data:
+        feat = ogr.Feature(lyr.GetLayerDefn())
+        feat.SetField("population", pop)
+        feat.SetField("name", name)
+        geom = ogr.CreateGeometryFromWkt("POINT (0 0)")
+        feat.SetGeometry(geom)
+        lyr.CreateFeature(feat)
+    
+    # Test attribute filter
+    lyr.SetAttributeFilter("population > 1000000")
+    
+    count = 0
+    lyr.ResetReading()
+    feat = lyr.GetNextFeature()
+    while feat:
+        assert feat.GetField("population") > 1000000
+        count += 1
+        feat = lyr.GetNextFeature()
+    
+    assert count == 2, f"Expected 2 features with population > 1M, got {count}"
+    
+    # Test feature count with filter
+    assert lyr.GetFeatureCount(force=True) == 2
+    
+    # Clear filter
+    lyr.SetAttributeFilter(None)
+    assert lyr.GetFeatureCount(force=True) == 4
+
+
+def test_ogr_h2gis_spatial_filter(h2gis_ds):
+    """Test spatial filter push-down to H2GIS."""
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    
+    lyr = h2gis_ds.CreateLayer("spatial_filter", srs=srs, geom_type=ogr.wkbPoint)
+    lyr.CreateField(ogr.FieldDefn("name", ogr.OFTString))
+    
+    # Insert test features in different locations
+    locations = [
+        ("paris", 2.35, 48.85),
+        ("london", -0.12, 51.51),
+        ("berlin", 13.40, 52.52),
+        ("tokyo", 139.69, 35.68),
+    ]
+    
+    for name, x, y in locations:
+        feat = ogr.Feature(lyr.GetLayerDefn())
+        feat.SetField("name", name)
+        geom = ogr.CreateGeometryFromWkt(f"POINT ({x} {y})")
+        feat.SetGeometry(geom)
+        lyr.CreateFeature(feat)
+    
+    # Create spatial filter for Europe (roughly)
+    filter_geom = ogr.CreateGeometryFromWkt(
+        "POLYGON ((-10 35, 30 35, 30 60, -10 60, -10 35))"
+    )
+    lyr.SetSpatialFilter(filter_geom)
+    
+    count = 0
+    lyr.ResetReading()
+    feat = lyr.GetNextFeature()
+    while feat:
+        count += 1
+        name = feat.GetField("name")
+        assert name in ["paris", "london", "berlin"], f"Unexpected feature: {name}"
+        feat = lyr.GetNextFeature()
+    
+    assert count == 3, f"Expected 3 European cities, got {count}"
+    
+    # Clear filter
+    lyr.SetSpatialFilter(None)
+    assert lyr.GetFeatureCount(force=True) == 4
