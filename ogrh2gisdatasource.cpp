@@ -14,9 +14,7 @@
 // Types and functions come from ogr_h2gis.h which includes h2gis.h and graal_isolate.h
 
 static void LogDebugDS(const char* msg) {
-    if (CPLGetConfigOption("H2GIS_DEBUG", nullptr) != nullptr) {
-        CPLDebug("H2GIS", "[DS][Thread %lu] %s", (unsigned long)pthread_self(), msg);
-    }
+    CPLDebug("H2GIS", "[DS][Thread %lu] %s", (unsigned long)pthread_self(), msg);
 }
 
 OGRH2GISDataSource::OGRH2GISDataSource() 

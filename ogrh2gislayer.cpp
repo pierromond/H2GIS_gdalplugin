@@ -3,14 +3,11 @@
 #include <iostream>
 #include <limits>
 #include <cstdio>
+#include "cpl_error.h"
 
-// Debug logging
+// Standard GDAL logging helper
 static void LogLayer(const char* func, const char* tableName) {
-    FILE* f = fopen("/tmp/h2gis_layer.log", "a");
-    if (f) {
-        fprintf(f, "[LAYER] %s: %s\n", func, tableName);
-        fclose(f);
-    }
+    CPLDebug("H2GIS", "[LAYER] %s: %s", func, tableName);
 }
 
 // h2gis_free_result_buffer is declared in h2gis.h, no need to redeclare

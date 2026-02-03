@@ -15,6 +15,8 @@
 
 #include "h2gis_wrapper.h"
 
+#include "cpl_error.h" // For CPLDebug
+
 #include <dlfcn.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -29,20 +31,8 @@
 #include <functional>
 #include <future>
 
-// Debug logging
-static void debug_log(const char* fmt, ...) {
-    FILE* f = fopen("/tmp/h2gis_wrapper_debug.log", "a");
-    if (f) {
-        va_list args;
-        va_start(args, fmt);
-        fprintf(f, "[H2GIS WRAPPER] ");
-        vfprintf(f, fmt, args);
-        fprintf(f, "\n");
-        fflush(f);
-        fclose(f);
-        va_end(args);
-    }
-}
+// Debug logging routed to CPLDebug
+#define debug_log(fmt, ...) CPLDebug("H2GIS_WRAPPER", fmt, ##__VA_ARGS__)
 
 // ============================================================================
 // Function pointer types
