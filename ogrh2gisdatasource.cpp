@@ -826,6 +826,91 @@ int OGRH2GISDataSource::TestCapability( const char * pszCap )
     return FALSE;
 }
 
+#if GDAL_VERSION_NUM >= 3100000
+OGRLayer *OGRH2GISDataSource::ICreateLayer(const char *pszName, const OGRGeomFieldDefn *poGeomFieldDefn, CSLConstList papszOptions)
+{
+    const OGRSpatialReference *poSpatialRef = poGeomFieldDefn ? poGeomFieldDefn->GetSpatialRef() : nullptr;
+    OGRwkbGeometryType eGType = poGeomFieldDefn ? poGeomFieldDefn->GetType() : wkbUnknown;
+    
+    graal_isolatethread_t* thread = (graal_isolatethread_t*)m_hThread;
+    
+    // Validate Name
+    std::string tableName(pszName); // Escape?
+    
+    // Layer creation options
+    const char* pszGeomName = CSLFetchNameValue(papszOptions, "GEOMETRY_NAME");
+    const char* pszFIDCol = CSLFetchNameValue(papszOptions, "FID");
+    const char* pszSpatialIndex = CSLFetchNameValue(papszOptions, "SPATIAL_INDEX");
+
+    std::string geomCol = (pszGeomName && strlen(pszGeomName) > 0) ? pszGeomName : "GEOM";
+    std::string fidCol = (pszFIDCol && strlen(pszFIDCol) > 0) ? pszFIDCol : "ID";
+    bool bCreateSpatialIndex = true;
+    if (pszSpatialIndex && EQUAL(pszSpatialIndex, "NO")) {
+        bCreateSpatialIndex = false;
+    }
+
+    // Construct SQL
+    // Default to FID (Serial)
+    std::string sql = "CREATE TABLE \"" + tableName + "\" (\"" + fidCol + "\" INT AUTO_INCREMENT PRIMARY KEY";
+    
+    int srid = 0;
+    if (poSpatialRef) {
+         // Get EPSG
+         const char* epsg = poSpatialRef->GetAuthorityCode(nullptr);
+         if (epsg) srid = atoi(epsg);
+    }
+    
+    if (eGType != wkbNone) {
+        sql += ", \"" + geomCol + "\" GEOMETRY"; 
+        // Note: H2GIS supports extended type syntax e.g. GEOMETRY(POINT, 4326)
+        // But keep it simple for now. 
+    }
+    
+    sql += ")";
+    
+    long long stmt = h2gis_prepare(thread, m_hConnection, (char*)sql.c_str());
+    if (!stmt) {
+        CPLError(CE_Failure, CPLE_AppDefined, "Failed to prepare CREATE TABLE statement.");
+        return nullptr;
+    }
+    
+    long long rs = h2gis_execute_prepared(thread, stmt);
+    h2gis_close_query(thread, stmt);
+    // RS is usually update count or null for DDL
+    if (rs) h2gis_close_query(thread, rs);
+
+    // Create Spatial Index if requested
+    if (bCreateSpatialIndex && eGType != wkbNone) {
+        std::string idxSql = "CREATE SPATIAL INDEX ON \"" + tableName + "\"(\"" + geomCol + "\")";
+        stmt = h2gis_prepare(thread, m_hConnection, (char*)idxSql.c_str());
+        if (stmt) {
+             rs = h2gis_execute_prepared(thread, stmt);
+             h2gis_close_query(thread, stmt);
+             if (rs) h2gis_close_query(thread, rs);
+        }
+    }
+
+    // Refresh layer list
+    // Ideally we should just add the new layer to our list instead of re-opening
+    // But for now, returning the layer requires creating it.
+    
+    // Create the layer object
+    // We need to fetch column info? No, it's empty.
+    std::vector<H2GISColumnInfo> cols; // Empty
+    
+    // We need to pass the proper SRID/Type
+    OGRH2GISLayer* poLayer = new OGRH2GISLayer(this, tableName.c_str(), tableName.c_str(), 
+                                               (eGType != wkbNone ? geomCol.c_str() : ""), 
+                                               fidCol.c_str(), srid, eGType, 0, cols);
+    
+    // Add to list
+    m_nLayers++;
+    m_papoLayers = (OGRH2GISLayer**)CPLRealloc(m_papoLayers, sizeof(OGRH2GISLayer*) * m_nLayers);
+    m_papoLayers[m_nLayers-1] = poLayer;
+
+    return poLayer;
+}
+#else
 #if GDAL_VERSION_NUM >= 3090000
 OGRLayer *OGRH2GISDataSource::ICreateLayer(const char *pszName, const OGRSpatialReference *poSpatialRef, OGRwkbGeometryType eGType, CSLConstList papszOptions)
 #elif GDAL_VERSION_NUM >= 3050000
@@ -904,6 +989,7 @@ OGRLayer *OGRH2GISDataSource::ICreateLayer(const char *pszName, OGRSpatialRefere
     
     return layer;
 }
+#endif
 
 OGRErr OGRH2GISDataSource::DeleteLayer(int iLayer)
 {

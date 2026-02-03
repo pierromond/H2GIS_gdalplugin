@@ -244,7 +244,9 @@ public:
     virtual OGRLayer   *ExecuteSQL(const char *pszSQL, OGRGeometry *poSpatialFilter, const char *pszDialect) override;
     virtual void        ReleaseResultSet(OGRLayer *poLayer) override;
 
-#if GDAL_VERSION_NUM >= 3090000
+#if GDAL_VERSION_NUM >= 3100000
+    virtual OGRLayer   *ICreateLayer(const char *pszName, const OGRGeomFieldDefn *poGeomFieldDefn, CSLConstList papszOptions) override;
+#elif GDAL_VERSION_NUM >= 3090000
     virtual OGRLayer   *ICreateLayer(const char *pszName, const OGRSpatialReference *poSpatialRef = nullptr, OGRwkbGeometryType eGType = wkbUnknown, CSLConstList papszOptions = nullptr) override;
 #elif GDAL_VERSION_NUM >= 3050000
     virtual OGRLayer   *ICreateLayer(const char *pszName, const OGRSpatialReference *poSpatialRef = nullptr, OGRwkbGeometryType eGType = wkbUnknown, char **papszOptions = nullptr) override;
