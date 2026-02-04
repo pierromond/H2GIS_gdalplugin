@@ -4,10 +4,10 @@ project(gdal_h2gis_driver)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Option for portable binary (statically link libstdc++)
+# Option for portable binary (statically link libstdc++) - Linux/GCC only
 option(PORTABLE_BUILD "Build portable binary with static libstdc++" OFF)
 
-if(PORTABLE_BUILD)
+if(PORTABLE_BUILD AND NOT WIN32 AND NOT APPLE)
     message(STATUS "Building PORTABLE binary (static libstdc++)")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++ -static-libgcc")
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static-libstdc++ -static-libgcc")
@@ -38,24 +38,56 @@ set(DRIVER_HEADERS
 )
 
 # Build as a MODULE (Plugin)
-# GDAL requires plugins to be named "gdal_X.so" and have GDALRegister_X() function
+# GDAL requires plugins to be named "gdal_X" with platform-specific extension
 add_library(gdal_H2GIS MODULE ${DRIVER_SOURCES} ${DRIVER_HEADERS})
 
 # Remove 'lib' prefix - GDAL expects "gdal_H2GIS.so" not "libgdal_H2GIS.so"
 set_target_properties(gdal_H2GIS PROPERTIES PREFIX "")
 
-# DO NOT link directly to libh2gis.so - we use dlopen at runtime in a thread with large stack
-# to avoid StackOverflowError during GraalVM initialization in worker threads.
-# Link only against GDAL and dl
-set(H2GIS_LIB "${CMAKE_CURRENT_SOURCE_DIR}/libh2gis.so")
-
-if (EXISTS ${H2GIS_LIB})
-    message(STATUS "Found H2GIS Library: ${H2GIS_LIB} (NOT linking directly, using dlopen)")
-    # Only link GDAL and dl
-    target_link_libraries(gdal_H2GIS ${GDAL_LIBRARY} ${CMAKE_DL_LIBS})
+# Platform-specific output suffix for the plugin
+if(WIN32)
+    set_target_properties(gdal_H2GIS PROPERTIES SUFFIX ".dll")
+elseif(APPLE)
+    set_target_properties(gdal_H2GIS PROPERTIES SUFFIX ".dylib")
 else()
-    message(FATAL_ERROR "libh2gis.so not found at ${H2GIS_LIB}! Please copy from h2gis-graalvm/target/h2gis-graalvm.so")
+    set_target_properties(gdal_H2GIS PROPERTIES SUFFIX ".so")
 endif()
 
-# Installation
-install(TARGETS gdal_H2GIS DESTINATION lib/gdalplugins)
+# DO NOT link directly to libh2gis - we use dlopen/LoadLibrary at runtime
+# in a thread with large stack to avoid StackOverflowError during GraalVM init.
+# The H2GIS library is loaded via H2GIS_LIBRARY or H2GIS_NATIVE_LIB env var at runtime.
+
+# Platform-specific library name (for informational message only)
+if(WIN32)
+    set(H2GIS_LIB_NAME "h2gis.dll")
+elseif(APPLE)
+    set(H2GIS_LIB_NAME "libh2gis.dylib")
+else()
+    set(H2GIS_LIB_NAME "libh2gis.so")
+endif()
+
+# Check if library exists (optional - just for user feedback)
+set(H2GIS_LIB "${CMAKE_CURRENT_SOURCE_DIR}/${H2GIS_LIB_NAME}")
+if(EXISTS ${H2GIS_LIB})
+    message(STATUS "Found H2GIS Library: ${H2GIS_LIB} (loaded via dlopen at runtime)")
+else()
+    message(STATUS "H2GIS Library not found at ${H2GIS_LIB}")
+    message(STATUS "  -> Set H2GIS_LIBRARY or H2GIS_NATIVE_LIB environment variable at runtime")
+    message(STATUS "  -> Or install h2gis Python package: pip install h2gis")
+endif()
+
+# Link against GDAL and platform-specific dynamic loading library
+if(WIN32)
+    # Windows uses LoadLibrary/GetProcAddress from kernel32 (implicit)
+    target_link_libraries(gdal_H2GIS ${GDAL_LIBRARY})
+else()
+    # Unix uses dlopen/dlsym from libdl
+    target_link_libraries(gdal_H2GIS ${GDAL_LIBRARY} ${CMAKE_DL_LIBS})
+endif()
+
+# Installation - platform-specific paths
+if(WIN32)
+    install(TARGETS gdal_H2GIS DESTINATION bin/gdalplugins)
+else()
+    install(TARGETS gdal_H2GIS DESTINATION lib/gdalplugins)
+endif()

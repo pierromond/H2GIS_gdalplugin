@@ -11,6 +11,11 @@ on:
     branches: [main]
   workflow_dispatch:  # Allows manual trigger from GitHub UI
 
+env:
+  # H2GIS native library artifact from orbisgis/h2gis
+  H2GIS_ARTIFACT_RUN_ID: "21453313316"
+  H2GIS_ARTIFACT_ID: "5293812301"
+
 jobs:
   build-linux:
     name: Build (Linux)
@@ -36,23 +41,44 @@ jobs:
           gdal-config --version
           ogrinfo --version
 
+      - name: Download H2GIS native library
+        run: |
+          # Download from orbisgis/h2gis artifact
+          curl -L -o h2gis-libs.zip \
+            "https://nightly.link/orbisgis/h2gis/actions/artifacts/${{ env.H2GIS_ARTIFACT_ID }}.zip" || \
+          python3 -m pip install --user h2gis
+          
+          if [ -f h2gis-libs.zip ]; then
+            unzip h2gis-libs.zip -d h2gis-libs/
+            # Find and copy .so file
+            find h2gis-libs/ -name "*.so" -exec cp {} libh2gis.so \; 2>/dev/null || true
+          fi
+          
+          # Fallback: use pip package
+          if [ ! -f libh2gis.so ]; then
+            H2GIS_LIB=$(python3 -c "import h2gis; import os; print(os.path.join(os.path.dirname(h2gis.__file__), 'lib', 'libh2gis.so'))" 2>/dev/null || echo "")
+            if [ -f "$H2GIS_LIB" ]; then
+              cp "$H2GIS_LIB" libh2gis.so
+            fi
+          fi
+          
+          ls -la libh2gis.so || echo "Warning: libh2gis.so not found, will be loaded at runtime"
+
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build
 
-      - name: Install h2gis Python package (for native library)
-        run: |
-          python3 -m pip install --user h2gis
-          # Find and display library location
-          python3 -c "import h2gis; import os; print('H2GIS lib:', os.path.join(os.path.dirname(h2gis.__file__), 'lib'))"
-
       - name: Run tests
         run: |
           # Set up environment
           export GDAL_DRIVER_PATH=$PWD/build
-          export H2GIS_LIBRARY=$(python3 -c "import h2gis; import os; print(os.path.join(os.path.dirname(h2gis.__file__), 'lib', 'libh2gis.so'))")
+          if [ -f libh2gis.so ]; then
+            export H2GIS_LIBRARY=$PWD/libh2gis.so
+          else
+            export H2GIS_LIBRARY=$(python3 -c "import h2gis; import os; print(os.path.join(os.path.dirname(h2gis.__file__), 'lib', 'libh2gis.so'))" 2>/dev/null || echo "")
+          fi
           
           # Verify driver is loaded
           ogrinfo --formats | grep -i h2gis || echo "Driver not visible in formats (expected for plugin)"
@@ -85,27 +111,45 @@ jobs:
           gdal-config --version
           ogrinfo --version
 
+      - name: Download H2GIS native library
+        run: |
+          # Download from orbisgis/h2gis artifact
+          curl -L -o h2gis-libs.zip \
+            "https://nightly.link/orbisgis/h2gis/actions/artifacts/${{ env.H2GIS_ARTIFACT_ID }}.zip" || \
+          python3 -m pip install --break-system-packages h2gis
+          
+          if [ -f h2gis-libs.zip ]; then
+            unzip h2gis-libs.zip -d h2gis-libs/
+            # Find and copy .dylib file
+            find h2gis-libs/ -name "*.dylib" -exec cp {} libh2gis.dylib \; 2>/dev/null || true
+          fi
+          
+          # Fallback: use pip package
+          if [ ! -f libh2gis.dylib ]; then
+            H2GIS_LIB=$(python3 -c "import h2gis; import os; print(os.path.join(os.path.dirname(h2gis.__file__), 'lib', 'libh2gis.dylib'))" 2>/dev/null || echo "")
+            if [ -f "$H2GIS_LIB" ]; then
+              cp "$H2GIS_LIB" libh2gis.dylib
+            fi
+          fi
+          
+          ls -la libh2gis.dylib || echo "Warning: libh2gis.dylib not found"
+
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build
 
-      - name: Install h2gis Python package (for native library)
-        run: |
-          python3 -m pip install --break-system-packages h2gis
-          python3 -c "import h2gis; import os; print('H2GIS lib:', os.path.join(os.path.dirname(h2gis.__file__), 'lib'))"
-
       - name: Verify build
         run: |
           ls -la build/
-          file build/gdal_H2GIS.dylib || file build/gdal_H2GIS.so || echo "Library built"
+          file build/gdal_H2GIS.dylib || echo "Library built"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: gdal-h2gis-macos
-          path: build/gdal_H2GIS.*
+          path: build/gdal_H2GIS.dylib
 
   build-windows:
     name: Build (Windows)
@@ -123,6 +167,38 @@ jobs:
           C:\vcpkg\bootstrap-vcpkg.bat
           C:\vcpkg\vcpkg install gdal:x64-windows
 
+      - name: Download H2GIS native library
+        shell: pwsh
+        run: |
+          # Download from orbisgis/h2gis artifact
+          try {
+            Invoke-WebRequest -Uri "https://nightly.link/orbisgis/h2gis/actions/artifacts/${{ env.H2GIS_ARTIFACT_ID }}.zip" -OutFile h2gis-libs.zip
+            Expand-Archive -Path h2gis-libs.zip -DestinationPath h2gis-libs
+            $dll = Get-ChildItem -Path h2gis-libs -Recurse -Filter "*.dll" | Select-Object -First 1
+            if ($dll) {
+              Copy-Item $dll.FullName -Destination "h2gis.dll"
+              Write-Host "Copied $($dll.FullName) to h2gis.dll"
+            }
+          } catch {
+            Write-Host "Artifact download failed, will try pip package"
+          }
+          
+          # Fallback: use pip package
+          if (-not (Test-Path "h2gis.dll")) {
+            python -m pip install h2gis
+            $h2gisPath = python -c "import h2gis; import os; print(os.path.join(os.path.dirname(h2gis.__file__), 'lib', 'h2gis.dll'))"
+            if (Test-Path $h2gisPath) {
+              Copy-Item $h2gisPath -Destination "h2gis.dll"
+            }
+          }
+          
+          if (Test-Path "h2gis.dll") {
+            Write-Host "h2gis.dll found"
+            Get-Item h2gis.dll
+          } else {
+            Write-Host "Warning: h2gis.dll not found"
+          }
+
       - name: Configure CMake
         run: |
           cmake -B build -DCMAKE_BUILD_TYPE=Release `
@@ -131,20 +207,15 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
-      - name: Install h2gis Python package (for native library)
-        run: |
-          python -m pip install h2gis
-          python -c "import h2gis; import os; print('H2GIS lib:', os.path.join(os.path.dirname(h2gis.__file__), 'lib'))"
-
       - name: Verify build
         run: |
-          dir build\Release\
-          dir build\
+          Get-ChildItem -Path build -Recurse -Filter "*.dll" | ForEach-Object { Write-Host $_.FullName }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: gdal-h2gis-windows
           path: |
-            build/Release/*.dll
-            build/*.dll
+            build/Release/gdal_H2GIS.dll
+            build/gdal_H2GIS.dll
+
