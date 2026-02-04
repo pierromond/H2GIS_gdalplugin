@@ -906,6 +906,20 @@ int OGRH2GISLayer::TestCapability(const char *pszCap)
     return FALSE;
 }
 
+// GDAL 3.12+ changed SetSpatialFilter to non-virtual, override ISetSpatialFilter instead
+#if GDAL_VERSION_NUM >= 3120000
+OGRErr OGRH2GISLayer::ISetSpatialFilter(int iGeomField,
+                                        const OGRGeometry *poGeom)
+{
+    // Install the filter (sets m_poFilterGeom, m_sFilterEnvelope, etc.)
+    if (iGeomField == 0)
+    {
+        InstallFilter(poGeom);
+    }
+    ResetReading();
+    return OGRERR_NONE;
+}
+#else
 void OGRH2GISLayer::SetSpatialFilter(OGRGeometry *poGeom)
 {
     OGRLayer::SetSpatialFilter(poGeom);
@@ -917,6 +931,7 @@ void OGRH2GISLayer::SetSpatialFilter(int iGeom, OGRGeometry *poGeom)
     OGRLayer::SetSpatialFilter(iGeom, poGeom);
     ResetReading();
 }
+#endif
 
 OGRErr OGRH2GISLayer::SetNextByIndex(GIntBig nIndex)
 {
@@ -1096,6 +1111,11 @@ GIntBig OGRH2GISLayer::GetFeatureCount(int bForce)
     return m_nFeatureCount;
 }
 
+// GDAL 3.12+ changed GetExtent to non-virtual, override IGetExtent instead
+#if GDAL_VERSION_NUM >= 3120000
+OGRErr OGRH2GISLayer::IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                                 bool bForce)
+#else
 OGRErr OGRH2GISLayer::GetExtent(OGREnvelope *psExtent, int bForce)
 {
     return GetExtent(0, psExtent, bForce);
@@ -1103,6 +1123,7 @@ OGRErr OGRH2GISLayer::GetExtent(OGREnvelope *psExtent, int bForce)
 
 OGRErr OGRH2GISLayer::GetExtent(int iGeomField, OGREnvelope *psExtent,
                                 int bForce)
+#endif
 {
     LogLayer("GetExtent", m_poFeatureDefn->GetName());
 

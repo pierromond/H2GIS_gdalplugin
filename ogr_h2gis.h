@@ -294,8 +294,20 @@ class OGRH2GISLayer final : public OGRLayer
         return m_osGeomCol.c_str();
     }
 
+    // GDAL 3.12+ changed SetSpatialFilter/GetExtent to non-virtual
+    // with ISetSpatialFilter/IGetExtent as protected virtual overrides
+#if GDAL_VERSION_NUM >= 3120000
+  protected:
+    virtual OGRErr ISetSpatialFilter(int iGeomField,
+                                     const OGRGeometry *) override;
+    virtual OGRErr IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                              bool bForce) override;
+
+  public:
+#else
     virtual void SetSpatialFilter(OGRGeometry *) override;
     virtual void SetSpatialFilter(int iGeomField, OGRGeometry *) override;
+#endif
     virtual OGRErr SetAttributeFilter(const char *pszQuery) override;
 
 #if GDAL_VERSION_NUM >= 3090000
@@ -305,11 +317,7 @@ class OGRH2GISLayer final : public OGRLayer
 #endif
 
     virtual GIntBig GetFeatureCount(int bForce) override;
-#if GDAL_VERSION_NUM >= 3100000
-    virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
-    virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
-                             int bForce = TRUE) override;
-#else
+#if GDAL_VERSION_NUM < 3120000
     virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce = TRUE) override;
