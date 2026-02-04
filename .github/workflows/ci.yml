@@ -107,18 +107,29 @@ jobs:
 
       - name: Cache Homebrew packages
         uses: actions/cache@v4
+        id: brew-cache
         with:
           path: |
             ~/Library/Caches/Homebrew
-            /usr/local/Cellar
             /opt/homebrew/Cellar
-          key: macos-brew-gdal-${{ runner.os }}-${{ runner.arch }}
+            /opt/homebrew/opt
+          key: macos-brew-gdal-${{ runner.os }}-${{ runner.arch }}-v2
           restore-keys: |
             macos-brew-gdal-
 
       - name: Install dependencies
         run: |
-          brew install gdal cmake
+          # Restore Homebrew links if cache was restored
+          if [ "${{ steps.brew-cache.outputs.cache-hit }}" == "true" ]; then
+            echo "Cache hit - relinking packages..."
+            brew link --overwrite gdal cmake 2>/dev/null || true
+          fi
+          # Install only if not already available
+          if ! command -v gdal-config &> /dev/null; then
+            brew install gdal cmake
+          else
+            echo "GDAL already installed: $(gdal-config --version)"
+          fi
 
       - name: Show GDAL version
         run: |
@@ -182,8 +193,11 @@ jobs:
         uses: actions/cache@v4
         id: vcpkg-cache
         with:
-          path: C:\vcpkg\installed
-          key: windows-vcpkg-gdal-x64-v1
+          path: |
+            C:\vcpkg\installed
+            C:\vcpkg\downloads
+            C:\vcpkg\packages
+          key: windows-vcpkg-gdal-x64-v2
           restore-keys: |
             windows-vcpkg-gdal-
 
@@ -193,10 +207,12 @@ jobs:
             git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
             C:\vcpkg\bootstrap-vcpkg.bat
           }
-          if (-not (Test-Path "C:\vcpkg\installed\x64-windows\lib\gdal.lib")) {
-            C:\vcpkg\vcpkg install gdal:x64-windows
-          } else {
+          # Check if GDAL is already installed from cache
+          if (Test-Path "C:\vcpkg\installed\x64-windows\include\gdal.h") {
             Write-Host "GDAL already installed from cache"
+          } else {
+            C:\vcpkg\vcpkg install gdal:x64-windows
+          }
           }
         shell: pwsh
 
