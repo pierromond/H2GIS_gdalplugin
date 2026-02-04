@@ -138,9 +138,11 @@ jobs:
       image: ubuntu:25.10
     steps:
       - name: Install dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          apt-get update -o Acquire::Retries=3 || (sleep 5 && apt-get update -o Acquire::Retries=3)
-          apt-get install -y --no-install-recommends \
+          apt-get update
+          apt-get install -y \
             cmake \
             build-essential \
             libgdal-dev \
@@ -279,7 +281,11 @@ jobs:
         run: |
           if (-not (Test-Path "C:\vcpkg")) {
             git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
-            C:\vcpkg\bootstrap-vcpkg.bat
+            Set-Location C:\vcpkg
+            # Pin vcpkg to a specific version to ensure cache hits and reproducibility
+            # Using 2024.11.16 release
+            git checkout 9e32a4e982180572dc197c33b749d03426e6cc6d
+            .\bootstrap-vcpkg.bat
           }
           # Check if GDAL is already installed from cache
           if (Test-Path "C:\vcpkg\installed\x64-windows\include\gdal.h") {
