@@ -1,0 +1,37 @@
+# Dockerfile for testing compilation on Ubuntu 22.04 with GDAL 3.4.1
+# This matches many production servers and older LTS installations
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install GDAL 3.4.1 from Ubuntu 22.04 repos
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    libgdal-dev \
+    gdal-bin \
+    && rm -rf /var/lib/apt/lists/*
+
+# Show versions
+RUN echo "=== Build Environment ===" && \
+    cat /etc/os-release | grep PRETTY_NAME && \
+    echo "GDAL: $(gdal-config --version)" && \
+    echo "GCC: $(gcc --version | head -1)" && \
+    echo "CMake: $(cmake --version | head -1)"
+
+WORKDIR /src
+
+# Copy source files
+COPY ogr_h2gis.h ogrh2gis*.cpp h2gis_wrapper.* h2gis.h graal_isolate.h CMakeLists.txt ./
+
+# Build
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build build
+
+# Verify
+RUN ls -la build/gdal_H2GIS.so && \
+    file build/gdal_H2GIS.so && \
+    ldd build/gdal_H2GIS.so
+
+CMD ["echo", "Build successful for Ubuntu 22.04 + GDAL 3.4.1"]

@@ -217,9 +217,17 @@ void RegisterOGRH2GIS()
         "  <Option name='SPATIAL_INDEX' type='boolean' description='Create "
         "spatial index' default='YES'/>"
         "</LayerCreationOptionList>");
+
+    // These constants were added in GDAL 3.6+
+#ifdef GDAL_DMD_SUPPORTED_SQL_DIALECTS
     poDriver->SetMetadataItem(GDAL_DMD_SUPPORTED_SQL_DIALECTS, "NATIVE OGRSQL");
+#endif
+#ifdef GDAL_DCAP_MEASURED_GEOMETRIES
     poDriver->SetMetadataItem(GDAL_DCAP_MEASURED_GEOMETRIES, "YES");
+#endif
+#ifdef GDAL_DCAP_Z_GEOMETRIES
     poDriver->SetMetadataItem(GDAL_DCAP_Z_GEOMETRIES, "YES");
+#endif
 #ifdef GDAL_DCAP_MULTIPLE_VECTOR_LAYERS
     poDriver->SetMetadataItem(GDAL_DCAP_MULTIPLE_VECTOR_LAYERS, "YES");
 #endif

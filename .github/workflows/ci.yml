@@ -17,6 +17,39 @@ env:
   H2GIS_ARTIFACT_ID: "5293812301"
 
 jobs:
+  build-linux-lts:
+    name: Build (Ubuntu 22.04 LTS + GDAL 3.4)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libgdal-dev gdal-bin
+
+      - name: Show GDAL version
+        run: |
+          gdal-config --version
+          ogrinfo --version
+
+      - name: Configure and Build
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Verify build
+        run: |
+          ls -la build/
+          file build/gdal_H2GIS.so
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gdal-h2gis-linux-ubuntu2204
+          path: build/gdal_H2GIS.so
+
   build-linux:
     name: Build (Linux)
     runs-on: ubuntu-24.04
