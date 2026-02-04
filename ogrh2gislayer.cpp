@@ -254,14 +254,6 @@ void OGRH2GISLayer::EnsureSchema()
     }
 }
 
-OGRFeatureDefn *OGRH2GISLayer::GetLayerDefn()
-{
-    LogLayer("GetLayerDefn", m_poFeatureDefn->GetName());
-    // Don't call EnsureSchema() here - it's called on ALL layers when listing
-    // Schema will be loaded on first feature read or explicit request
-    return m_poFeatureDefn;
-}
-
 void OGRH2GISLayer::ResetReading()
 {
     // Lazy reset - don't prepare query until first GetNextFeature
@@ -882,7 +874,11 @@ OGRFeature *OGRH2GISLayer::GetFeature(GIntBig nFID)
     return poFeature;
 }
 
+#if GDAL_VERSION_NUM >= 3100000
+int OGRH2GISLayer::TestCapability(const char *pszCap) const
+#else
 int OGRH2GISLayer::TestCapability(const char *pszCap)
+#endif
 {
     if (EQUAL(pszCap, OLCCreateField))
         return TRUE;

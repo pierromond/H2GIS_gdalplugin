@@ -313,6 +313,17 @@ class OGRH2GISResultLayer final : public OGRLayer
         m_iNextFID = 0;
     }
 
+#if GDAL_VERSION_NUM >= 3100000
+    const OGRFeatureDefn *GetLayerDefn() const override
+    {
+        return m_poFeatureDefn;
+    }
+
+    int TestCapability(const char *) const override
+    {
+        return FALSE;
+    }
+#else
     OGRFeatureDefn *GetLayerDefn() override
     {
         return m_poFeatureDefn;
@@ -322,6 +333,7 @@ class OGRH2GISResultLayer final : public OGRLayer
     {
         return FALSE;
     }
+#endif
 
     OGRFeature *GetNextFeature() override
     {
@@ -1041,6 +1053,25 @@ int OGRH2GISDataSource::Open(const char *pszFilename, int bUpdate,
     return TRUE;
 }
 
+#if GDAL_VERSION_NUM >= 3100000
+OGRLayer *OGRH2GISDataSource::GetLayer(int i) const
+{
+    if (i < 0 || i >= m_nLayers)
+        return nullptr;
+    return m_papoLayers[i];
+}
+
+int OGRH2GISDataSource::TestCapability(const char *pszCap) const
+{
+    if (EQUAL(pszCap, ODsCCreateLayer))
+        return TRUE;
+    if (EQUAL(pszCap, ODsCDeleteLayer))
+        return TRUE;
+    if (EQUAL(pszCap, ODsCTransactions))
+        return TRUE;
+    return FALSE;
+}
+#else
 OGRLayer *OGRH2GISDataSource::GetLayer(int i)
 {
     if (i < 0 || i >= m_nLayers)
@@ -1058,6 +1089,7 @@ int OGRH2GISDataSource::TestCapability(const char *pszCap)
         return TRUE;
     return FALSE;
 }
+#endif
 
 #if GDAL_VERSION_NUM >= 3100000
 OGRLayer *

@@ -50,7 +50,10 @@ jobs:
           
           if [ -f h2gis-libs.zip ]; then
             unzip h2gis-libs.zip -d h2gis-libs/
+            # Extract nested zip if present (artifact contains h2gis-graalvm-all-platforms.zip)
+            find h2gis-libs/ -name "*.zip" -exec unzip -o {} -d h2gis-libs/ \; 2>/dev/null || true
             # Find and copy .so file
+            find h2gis-libs/ -name "libh2gis.so" -exec cp {} libh2gis.so \; 2>/dev/null || true
             find h2gis-libs/ -name "*.so" -exec cp {} libh2gis.so \; 2>/dev/null || true
           fi
           
@@ -131,7 +134,10 @@ jobs:
           
           if [ -f h2gis-libs.zip ]; then
             unzip h2gis-libs.zip -d h2gis-libs/
+            # Extract nested zip if present (artifact contains h2gis-graalvm-all-platforms.zip)
+            find h2gis-libs/ -name "*.zip" -exec unzip -o {} -d h2gis-libs/ \; 2>/dev/null || true
             # Find and copy .dylib file
+            find h2gis-libs/ -name "libh2gis.dylib" -exec cp {} libh2gis.dylib \; 2>/dev/null || true
             find h2gis-libs/ -name "*.dylib" -exec cp {} libh2gis.dylib \; 2>/dev/null || true
           fi
           
@@ -201,7 +207,14 @@ jobs:
           try {
             Invoke-WebRequest -Uri "https://nightly.link/orbisgis/h2gis/actions/artifacts/${{ env.H2GIS_ARTIFACT_ID }}.zip" -OutFile h2gis-libs.zip
             Expand-Archive -Path h2gis-libs.zip -DestinationPath h2gis-libs
-            $dll = Get-ChildItem -Path h2gis-libs -Recurse -Filter "*.dll" | Select-Object -First 1
+            # Extract nested zip if present (artifact contains h2gis-graalvm-all-platforms.zip)
+            Get-ChildItem -Path h2gis-libs -Recurse -Filter "*.zip" | ForEach-Object {
+              Expand-Archive -Path $_.FullName -DestinationPath h2gis-libs -Force
+            }
+            $dll = Get-ChildItem -Path h2gis-libs -Recurse -Filter "h2gis.dll" | Select-Object -First 1
+            if (-not $dll) {
+              $dll = Get-ChildItem -Path h2gis-libs -Recurse -Filter "*.dll" | Select-Object -First 1
+            }
             if ($dll) {
               Copy-Item $dll.FullName -Destination "h2gis.dll"
               Write-Host "Copied $($dll.FullName) to h2gis.dll"
