@@ -139,8 +139,14 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          apt-get update
-          apt-get install -y cmake build-essential libgdal-dev gdal-bin git ca-certificates
+          apt-get update -o Acquire::Retries=3 || (sleep 5 && apt-get update -o Acquire::Retries=3)
+          apt-get install -y --no-install-recommends \
+            cmake \
+            build-essential \
+            libgdal-dev \
+            gdal-bin \
+            git \
+            ca-certificates
 
       - name: Checkout
         uses: actions/checkout@v4
