@@ -307,11 +307,10 @@ void OGRH2GISLayer::PrepareQuery()
 
         // Use && operator (spatial index) AND ST_Intersects (exact check)
         // H2GIS docs state ST_Intersects doesn't always use the index, but && does.
-        std::string sEnv = "ST_MakeEnvelope(" + std::to_string(env.MinX) +
-                           ", " + std::to_string(env.MinY) + ", " +
-                           std::to_string(env.MaxX) + ", " +
-                           std::to_string(env.MaxY) + ", " +
-                           (m_nSRID > 0 ? std::to_string(m_nSRID) : "0") + ")";
+        // Use CPLSPrintf for locale-independent decimal formatting (dot, not comma)
+        std::string sEnv = CPLSPrintf("ST_MakeEnvelope(%.15g, %.15g, %.15g, %.15g, %d)",
+                                      env.MinX, env.MinY, env.MaxX, env.MaxY,
+                                      m_nSRID > 0 ? m_nSRID : 0);
 
         sql += " WHERE \"" + m_osGeomCol + "\" && " + sEnv +
                " AND ST_Intersects(\"" + m_osGeomCol + "\", " + sEnv + ")";
@@ -345,6 +344,13 @@ void OGRH2GISLayer::PrepareQuery()
         // 2. Fast Feature Count from metadata (prevents QGIS COUNT(*))
         // 3. Fast Extent (approximate or sampled)
         LogLayer("PrepareQuery without filters", m_poFeatureDefn->GetName());
+    }
+
+    // Add OFFSET for SetNextByIndex support
+    if (m_iNextShapeId > 0)
+    {
+        sql += " OFFSET " + std::to_string(m_iNextShapeId);
+        LogLayer("PrepareQuery with OFFSET", std::to_string(m_iNextShapeId).c_str());
     }
 
     graal_isolatethread_t *thread =
@@ -899,6 +905,8 @@ int OGRH2GISLayer::TestCapability(const char *pszCap)
         return TRUE;  // Transactions supported
     if (EQUAL(pszCap, OLCIgnoreFields))
         return TRUE;
+    if (EQUAL(pszCap, OLCFastSetNextByIndex))
+        return TRUE;  // SetNextByIndex with OFFSET supported
     return FALSE;
 }
 
@@ -912,6 +920,21 @@ void OGRH2GISLayer::SetSpatialFilter(int iGeom, OGRGeometry *poGeom)
 {
     OGRLayer::SetSpatialFilter(iGeom, poGeom);
     ResetReading();
+}
+
+OGRErr OGRH2GISLayer::SetNextByIndex(GIntBig nIndex)
+{
+    if (nIndex < 0)
+        return OGRERR_FAILURE;
+
+    // Clear any existing statement
+    ClearStatement();
+
+    // Set the starting index - PrepareQuery will add OFFSET
+    m_iNextShapeId = nIndex;
+    m_bResetPending = true;
+
+    return OGRERR_NONE;
 }
 
 OGRErr OGRH2GISLayer::SetAttributeFilter(const char *pszQuery)
@@ -994,11 +1017,10 @@ GIntBig OGRH2GISLayer::GetFeatureCount(int bForce)
         OGREnvelope env;
         m_poFilterGeom->getEnvelope(&env);
 
-        std::string sEnv = "ST_MakeEnvelope(" + std::to_string(env.MinX) +
-                           ", " + std::to_string(env.MinY) + ", " +
-                           std::to_string(env.MaxX) + ", " +
-                           std::to_string(env.MaxY) + ", " +
-                           (m_nSRID > 0 ? std::to_string(m_nSRID) : "0") + ")";
+        // Use CPLSPrintf for locale-independent decimal formatting
+        std::string sEnv = CPLSPrintf("ST_MakeEnvelope(%.15g, %.15g, %.15g, %.15g, %d)",
+                                      env.MinX, env.MinY, env.MaxX, env.MaxY,
+                                      m_nSRID > 0 ? m_nSRID : 0);
 
         sql += " WHERE \"" + m_osGeomCol + "\" && " + sEnv +
                " AND ST_Intersects(\"" + m_osGeomCol + "\", " + sEnv + ")";
@@ -1470,7 +1492,8 @@ OGRErr OGRH2GISLayer::ICreateFeature(OGRFeature *poFeature)
                 values += std::to_string(poFeature->GetFieldAsInteger64(i));
                 break;
             case OFTReal:
-                values += std::to_string(poFeature->GetFieldAsDouble(i));
+                // Use CPLSPrintf for locale-independent decimal formatting
+                values += CPLSPrintf("%.15g", poFeature->GetFieldAsDouble(i));
                 break;
             case OFTString:
             {
@@ -1487,6 +1510,33 @@ OGRErr OGRH2GISLayer::ICreateFeature(OGRFeature *poFeature)
                 values += "'";
                 values += escaped;
                 values += "'";
+                break;
+            }
+            case OFTDate:
+            {
+                // H2 expects YYYY-MM-DD format
+                int year, month, day, hour, minute, tzflag;
+                float second;
+                poFeature->GetFieldAsDateTime(i, &year, &month, &day, &hour, &minute, &second, &tzflag);
+                values += CPLSPrintf("'%04d-%02d-%02d'", year, month, day);
+                break;
+            }
+            case OFTTime:
+            {
+                // H2 expects HH:MM:SS format
+                int year, month, day, hour, minute, tzflag;
+                float second;
+                poFeature->GetFieldAsDateTime(i, &year, &month, &day, &hour, &minute, &second, &tzflag);
+                values += CPLSPrintf("'%02d:%02d:%02d'", hour, minute, (int)second);
+                break;
+            }
+            case OFTDateTime:
+            {
+                // H2 expects YYYY-MM-DD HH:MM:SS format
+                int year, month, day, hour, minute, tzflag;
+                float second;
+                poFeature->GetFieldAsDateTime(i, &year, &month, &day, &hour, &minute, &second, &tzflag);
+                values += CPLSPrintf("'%04d-%02d-%02d %02d:%02d:%02d'", year, month, day, hour, minute, (int)second);
                 break;
             }
             default:
@@ -1684,7 +1734,8 @@ OGRErr OGRH2GISLayer::ISetFeature(OGRFeature *poFeature)
                     sql += std::to_string(poFeature->GetFieldAsInteger64(i));
                     break;
                 case OFTReal:
-                    sql += std::to_string(poFeature->GetFieldAsDouble(i));
+                    // Use CPLSPrintf for locale-independent decimal formatting
+                    sql += CPLSPrintf("%.15g", poFeature->GetFieldAsDouble(i));
                     break;
                 case OFTString:
                 {
@@ -1700,6 +1751,30 @@ OGRErr OGRH2GISLayer::ISetFeature(OGRFeature *poFeature)
                     sql += "'";
                     sql += escaped;
                     sql += "'";
+                    break;
+                }
+                case OFTDate:
+                {
+                    int year, month, day, hour, minute, tzflag;
+                    float second;
+                    poFeature->GetFieldAsDateTime(i, &year, &month, &day, &hour, &minute, &second, &tzflag);
+                    sql += CPLSPrintf("'%04d-%02d-%02d'", year, month, day);
+                    break;
+                }
+                case OFTTime:
+                {
+                    int year, month, day, hour, minute, tzflag;
+                    float second;
+                    poFeature->GetFieldAsDateTime(i, &year, &month, &day, &hour, &minute, &second, &tzflag);
+                    sql += CPLSPrintf("'%02d:%02d:%02d'", hour, minute, (int)second);
+                    break;
+                }
+                case OFTDateTime:
+                {
+                    int year, month, day, hour, minute, tzflag;
+                    float second;
+                    poFeature->GetFieldAsDateTime(i, &year, &month, &day, &hour, &minute, &second, &tzflag);
+                    sql += CPLSPrintf("'%04d-%02d-%02d %02d:%02d:%02d'", year, month, day, hour, minute, (int)second);
                     break;
                 }
                 default:

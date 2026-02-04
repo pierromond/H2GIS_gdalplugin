@@ -1106,9 +1106,17 @@ OGRH2GISDataSource::ICreateLayer(const char *pszName,
 
     if (eGType != wkbNone)
     {
-        sql += ", \"" + geomCol + "\" GEOMETRY";
-        // Note: H2GIS supports extended type syntax e.g. GEOMETRY(POINT, 4326)
-        // But keep it simple for now.
+        // Use typed geometry syntax: GEOMETRY(POINT Z, 4326)
+        const char *pszGeomTypeName = MapOGRGeomTypeToH2Name(eGType);
+        const char *pszZMSuffix = GetH2GeomZMSuffix(eGType);
+        
+        sql += ", \"" + geomCol + "\" GEOMETRY(" + std::string(pszGeomTypeName) + 
+               std::string(pszZMSuffix);
+        if (srid > 0)
+        {
+            sql += ", " + std::to_string(srid);
+        }
+        sql += ")";
     }
 
     sql += ")";
@@ -1218,9 +1226,17 @@ OGRLayer *OGRH2GISDataSource::ICreateLayer(const char *pszName,
 
     if (eGType != wkbNone)
     {
-        sql += ", \"" + geomCol + "\" GEOMETRY";
-        // Note: H2GIS supports extended type syntax e.g. GEOMETRY(POINT, 4326)
-        // But keep it simple for now.
+        // Use typed geometry syntax: GEOMETRY(POINT Z, 4326)
+        const char *pszGeomTypeName = MapOGRGeomTypeToH2Name(eGType);
+        const char *pszZMSuffix = GetH2GeomZMSuffix(eGType);
+        
+        sql += ", \"" + geomCol + "\" GEOMETRY(" + std::string(pszGeomTypeName) + 
+               std::string(pszZMSuffix);
+        if (srid > 0)
+        {
+            sql += ", " + std::to_string(srid);
+        }
+        sql += ")";
     }
 
     sql += ")";

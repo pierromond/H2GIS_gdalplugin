@@ -151,6 +151,44 @@ inline OGRFieldType MapH2DataType(const std::string &h2Type)
     return OFTString;
 }
 
+// Map OGRwkbGeometryType to H2GIS geometry type name for CREATE TABLE
+inline const char *MapOGRGeomTypeToH2Name(OGRwkbGeometryType eType)
+{
+    switch (wkbFlatten(eType))
+    {
+        case wkbPoint:
+            return "POINT";
+        case wkbLineString:
+            return "LINESTRING";
+        case wkbPolygon:
+            return "POLYGON";
+        case wkbMultiPoint:
+            return "MULTIPOINT";
+        case wkbMultiLineString:
+            return "MULTILINESTRING";
+        case wkbMultiPolygon:
+            return "MULTIPOLYGON";
+        case wkbGeometryCollection:
+            return "GEOMETRYCOLLECTION";
+        default:
+            return "GEOMETRY";  // Generic fallback
+    }
+}
+
+// Get Z/M suffix for H2GIS geometry type
+inline const char *GetH2GeomZMSuffix(OGRwkbGeometryType eType)
+{
+    bool hasZ = wkbHasZ(eType);
+    bool hasM = wkbHasM(eType);
+    if (hasZ && hasM)
+        return " ZM";
+    if (hasZ)
+        return " Z";
+    if (hasM)
+        return " M";
+    return "";
+}
+
 class OGRH2GISDataSource;
 
 class OGRH2GISLayer final : public OGRLayer
@@ -248,6 +286,8 @@ class OGRH2GISLayer final : public OGRLayer
     virtual OGRErr GetExtent(OGREnvelope *psExtent, int bForce = TRUE) override;
     virtual OGRErr GetExtent(int iGeomField, OGREnvelope *psExtent,
                              int bForce = TRUE) override;
+
+    virtual OGRErr SetNextByIndex(GIntBig nIndex) override;
 
     virtual OGRErr ICreateFeature(OGRFeature *poFeature) override;
     virtual OGRErr ISetFeature(OGRFeature *poFeature) override;
