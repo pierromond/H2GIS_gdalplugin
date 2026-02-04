@@ -173,6 +173,16 @@ static GDALDataset *OGRH2GISDriverCreate(const char *pszName, int nXSize,
 }
 
 /************************************************************************/
+/*                          OGRH2GISDriverUnload()                      */
+/************************************************************************/
+
+static void OGRH2GISDriverUnload(GDALDriver *poDriver)
+{
+    CPLDebug("H2GIS", "OGRH2GISDriverUnload: Shutting down H2GIS wrapper");
+    h2gis_wrapper_shutdown();
+}
+
+/************************************************************************/
 /*                           RegisterOGRH2GIS()                         */
 /************************************************************************/
 
@@ -239,6 +249,7 @@ void RegisterOGRH2GIS()
     poDriver->pfnIdentify = OGRH2GISDriverIdentify;
     poDriver->pfnOpen = OGRH2GISDriverOpen;
     poDriver->pfnCreate = OGRH2GISDriverCreate;
+    poDriver->pfnUnloadDriver = OGRH2GISDriverUnload;
 
     GetGDALDriverManager()->RegisterDriver(poDriver);
 

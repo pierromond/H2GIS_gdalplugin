@@ -653,7 +653,8 @@ int OGRH2GISDataSource::Open(const char *pszFilename, int bUpdate,
         conn = h2gis_connect(thread, (char *)path.c_str(),
                              (char *)cred.u.c_str(), (char *)cred.p.c_str());
 
-        if (conn >= 0)
+        // Assuming 0 is invalid handle (null) and -1 is error
+        if (conn != 0 && conn != -1)
         {
             LogDebugDS("Connection successful!");
             m_hConnection = conn;

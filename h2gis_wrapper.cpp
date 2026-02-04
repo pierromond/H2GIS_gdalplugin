@@ -389,13 +389,17 @@ static void *worker_thread_func(void *arg)
 
     // Load library and create isolate HERE (on the large-stack thread)
     const char *lib_path = getenv("H2GIS_NATIVE_LIB");
+    if (!lib_path)
+    {
+        lib_path = getenv("H2GIS_LIBRARY");
+    }
 
     // Get platform-specific fallback paths
     const char **fallbacks = h2gis_get_library_fallback_paths();
 
     if (lib_path)
     {
-        debug_log("worker_thread_func: Loading explicit H2GIS_NATIVE_LIB: %s",
+        debug_log("worker_thread_func: Loading explicit library path: %s",
                   lib_path);
         g_h2gis_handle = h2gis_load_library(lib_path);
     }
@@ -618,6 +622,7 @@ extern "C" int h2gis_wrapper_init(void)
     }
 
     // Register atexit handler to ensure clean shutdown when process exits
+    /*
     static bool atexit_registered = false;
     if (!atexit_registered)
     {
@@ -625,6 +630,9 @@ extern "C" int h2gis_wrapper_init(void)
         atexit_registered = true;
         debug_log("h2gis_wrapper_init: atexit handler registered");
     }
+    */
+    // NOTE: We now use GDAL's pfnUnloadDriver mechanism (OGRH2GISDriverUnload)
+    // to trigger shutdown. This is safer than atexit which may run too late.
 
     debug_log("h2gis_wrapper_init: Success!");
     return 0;
