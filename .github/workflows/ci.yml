@@ -102,6 +102,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache Homebrew packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew
+            /usr/local/Cellar
+            /opt/homebrew/Cellar
+          key: macos-brew-gdal-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: |
+            macos-brew-gdal-
+
       - name: Install dependencies
         run: |
           brew install gdal cmake
@@ -161,11 +172,27 @@ jobs:
       - name: Setup MSVC
         uses: microsoft/setup-msbuild@v2
 
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        id: vcpkg-cache
+        with:
+          path: C:\vcpkg\installed
+          key: windows-vcpkg-gdal-x64-v1
+          restore-keys: |
+            windows-vcpkg-gdal-
+
       - name: Install vcpkg and GDAL
         run: |
-          git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
-          C:\vcpkg\bootstrap-vcpkg.bat
-          C:\vcpkg\vcpkg install gdal:x64-windows
+          if (-not (Test-Path "C:\vcpkg")) {
+            git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+            C:\vcpkg\bootstrap-vcpkg.bat
+          }
+          if (-not (Test-Path "C:\vcpkg\installed\x64-windows\lib\gdal.lib")) {
+            C:\vcpkg\vcpkg install gdal:x64-windows
+          } else {
+            Write-Host "GDAL already installed from cache"
+          }
+        shell: pwsh
 
       - name: Download H2GIS native library
         shell: pwsh
