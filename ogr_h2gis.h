@@ -247,7 +247,7 @@ class OGRH2GISLayer final : public OGRLayer
     virtual void ResetReading() override;
     virtual OGRFeature *GetNextFeature() override;
     virtual OGRFeature *GetFeature(GIntBig nFID) override;
-#if GDAL_VERSION_NUM >= 3100000
+#if GDAL_VERSION_NUM >= 3120000
     virtual const OGRFeatureDefn *GetLayerDefn() const override
     {
         return m_poFeatureDefn;
@@ -269,14 +269,14 @@ class OGRH2GISLayer final : public OGRLayer
         return m_osTableName.c_str();
     }
 
-#if GDAL_VERSION_NUM >= 3100000
+#if GDAL_VERSION_NUM >= 3120000
     virtual int TestCapability(const char *) const override;
 #else
     virtual int TestCapability(const char *) override;
 #endif
 
-    // GDAL 3.10+ const correctness
-#if GDAL_VERSION_NUM >= 3100000
+    // GDAL 3.12+ const correctness
+#if GDAL_VERSION_NUM >= 3120000
     const char *GetFIDColumn() const override
 #else
     const char *GetFIDColumn() override
@@ -285,7 +285,7 @@ class OGRH2GISLayer final : public OGRLayer
         return m_osFIDCol.empty() ? "_ROWID_" : m_osFIDCol.c_str();
     }
 
-#if GDAL_VERSION_NUM >= 3100000
+#if GDAL_VERSION_NUM >= 3120000
     const char *GetGeometryColumn() const override
 #else
     const char *GetGeometryColumn() override
@@ -354,7 +354,7 @@ class OGRH2GISDataSource final : public GDALDataset
     int Open(const char *pszFilename, int bUpdate,
              const char *pszUser = nullptr, const char *pszPassword = nullptr);
 
-#if GDAL_VERSION_NUM >= 3100000
+#if GDAL_VERSION_NUM >= 3120000
     virtual int GetLayerCount() const override
     {
         return m_nLayers;
@@ -405,7 +405,7 @@ class OGRH2GISDataSource final : public GDALDataset
     virtual OGRErr CommitTransaction() override;
     virtual OGRErr RollbackTransaction() override;
 
-#if GDAL_VERSION_NUM >= 3100000
+#if GDAL_VERSION_NUM >= 3120000
     virtual int TestCapability(const char *) const override;
 #else
     virtual int TestCapability(const char *) override;

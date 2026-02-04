@@ -62,14 +62,15 @@ The `gdal-integration/` directory contains files for GDAL source tree integratio
 - Use `CPLDebug()` for debugging information.
 - Use `CPLError()` for error reporting.
 - **IMPORTANT**: The driver requires file paths to end with `.mv.db` (H2 v2 format) for correct identification.
-- **Target**: GDAL 3.4+ with full compatibility up to GDAL 3.10+.
+- **Target**: GDAL 3.4+ with full compatibility up to GDAL 3.12+.
 - **SPDX Header Required**: All files must have `SPDX-License-Identifier: GPL-3.0-or-later`
 
 ## GDAL API Version Compatibility (Critical)
 - Use `#if GDAL_VERSION_NUM >= XXXXX` for API changes between versions:
     - `>= 3090000`: `SetIgnoredFields(const char* const*)`, `CreateField(const OGRFieldDefn*)`
     - `>= 3100000`: `ICreateLayer(const char*, const OGRGeomFieldDefn*, CSLConstList)`
-- Note: `TestCapability(const char*)` does NOT have `const` qualifier in any GDAL version.
+    - `>= 3120000`: const methods (`GetLayerDefn() const`, `TestCapability() const`, `GetLayer() const`, etc.)
+    - `>= 3120000`: `ISetSpatialFilter`/`IGetExtent` as protected virtual overrides (SetSpatialFilter/GetExtent are non-virtual)
 
 ## Driver Registration
 - Maintain the `H2GIS_DRIVER_NAME` constant in `ogr_h2gis.h`.

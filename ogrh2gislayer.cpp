@@ -874,7 +874,7 @@ OGRFeature *OGRH2GISLayer::GetFeature(GIntBig nFID)
     return poFeature;
 }
 
-#if GDAL_VERSION_NUM >= 3100000
+#if GDAL_VERSION_NUM >= 3120000
 int OGRH2GISLayer::TestCapability(const char *pszCap) const
 #else
 int OGRH2GISLayer::TestCapability(const char *pszCap)

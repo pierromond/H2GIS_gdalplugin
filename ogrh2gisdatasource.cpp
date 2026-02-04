@@ -313,7 +313,7 @@ class OGRH2GISResultLayer final : public OGRLayer
         m_iNextFID = 0;
     }
 
-#if GDAL_VERSION_NUM >= 3100000
+#if GDAL_VERSION_NUM >= 3120000
     const OGRFeatureDefn *GetLayerDefn() const override
     {
         return m_poFeatureDefn;
@@ -1053,7 +1053,7 @@ int OGRH2GISDataSource::Open(const char *pszFilename, int bUpdate,
     return TRUE;
 }
 
-#if GDAL_VERSION_NUM >= 3100000
+#if GDAL_VERSION_NUM >= 3120000
 OGRLayer *OGRH2GISDataSource::GetLayer(int i) const
 {
     if (i < 0 || i >= m_nLayers)
