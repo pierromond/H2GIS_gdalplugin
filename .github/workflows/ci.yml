@@ -47,11 +47,11 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gdal-h2gis-linux-ubuntu2204
+          name: gdal-h2gis-ubuntu22.04-gdal3.4
           path: build/gdal_H2GIS.so
 
   build-linux:
-    name: Build (Linux)
+    name: Build (Ubuntu 24.04 + GDAL 3.8)
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -128,11 +128,46 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gdal-h2gis-linux
+          name: gdal-h2gis-ubuntu24.04-gdal3.8
+          path: build/gdal_H2GIS.so
+
+  build-linux-rolling:
+    name: Build (Ubuntu 25.10 + GDAL 3.10)
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:25.10
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y cmake build-essential libgdal-dev gdal-bin git ca-certificates
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show GDAL version
+        run: |
+          gdal-config --version
+          ogrinfo --version
+
+      - name: Configure and Build
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Verify build
+        run: |
+          ls -la build/
+          file build/gdal_H2GIS.so
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gdal-h2gis-ubuntu25.10-gdal3.10
           path: build/gdal_H2GIS.so
 
   build-macos:
-    name: Build (macOS)
+    name: Build (macOS ARM64 + GDAL 3.12)
     runs-on: macos-14
     steps:
       - name: Checkout
@@ -209,11 +244,11 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gdal-h2gis-macos
+          name: gdal-h2gis-macos-arm64-gdal3.12
           path: build/gdal_H2GIS.dylib
 
   build-windows:
-    name: Build (Windows)
+    name: Build (Windows x64 + GDAL 3.8)
     runs-on: windows-2022
     steps:
       - name: Checkout
@@ -245,7 +280,6 @@ jobs:
             Write-Host "GDAL already installed from cache"
           } else {
             C:\vcpkg\vcpkg install gdal:x64-windows
-          }
           }
         shell: pwsh
 
@@ -303,7 +337,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gdal-h2gis-windows
+          name: gdal-h2gis-windows-x64-gdal3.8
           path: |
             build/Release/gdal_H2GIS.dll
             build/gdal_H2GIS.dll
