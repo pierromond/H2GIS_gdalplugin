@@ -21,7 +21,7 @@ def get_platform_info() -> Dict[str, Any]:
     
     Returns:
         Dictionary with keys:
-        - os: 'linux', 'windows', 'darwin' (macOS)
+        - os: 'linux', 'windows', 'macos'
         - arch: 'x86_64', 'arm64', etc.
         - gdal_version: '3.8.4', etc.
         - gdal_major_minor: '3.8'
@@ -42,7 +42,7 @@ def get_platform_info() -> Dict[str, Any]:
         info['driver_extension'] = '.dll'
         info['h2gis_lib_name'] = 'h2gis.dll'
     elif system == 'darwin':
-        info['os'] = 'darwin'
+        info['os'] = 'macos'  # Normalize 'darwin' to 'macos' for clarity
         info['driver_extension'] = '.dylib'
         info['h2gis_lib_name'] = 'libh2gis.dylib'
     else:
@@ -145,6 +145,7 @@ def get_artifact_name(platform_info: Dict[str, Any]) -> Optional[str]:
     # Mapping of supported configurations
     # Format: (os, arch, gdal_major_minor) -> artifact_name
     artifact_map = {
+        # Linux x86_64
         ('linux', 'x86_64', '3.4'): 'gdal-h2gis-ubuntu22.04-gdal3.4',
         ('linux', 'x86_64', '3.6'): 'gdal-h2gis-ubuntu22.04-gdal3.4',  # Best effort
         ('linux', 'x86_64', '3.8'): 'gdal-h2gis-ubuntu24.04-gdal3.8',
@@ -152,9 +153,20 @@ def get_artifact_name(platform_info: Dict[str, Any]) -> Optional[str]:
         ('linux', 'x86_64', '3.10'): 'gdal-h2gis-ubuntu25.10-gdal3.10',
         ('linux', 'x86_64', '3.11'): 'gdal-h2gis-ubuntu25.10-gdal3.10',  # Best effort
         ('linux', 'x86_64', '3.12'): 'gdal-h2gis-ubuntu25.10-gdal3.10',  # Best effort
-        ('darwin', 'arm64', '3.10'): 'gdal-h2gis-macos-arm64-gdal3.12',
-        ('darwin', 'arm64', '3.11'): 'gdal-h2gis-macos-arm64-gdal3.12',
-        ('darwin', 'arm64', '3.12'): 'gdal-h2gis-macos-arm64-gdal3.12',
+        # macOS ARM64 (M1/M2/M3)
+        ('macos', 'arm64', '3.10'): 'gdal-h2gis-macos-arm64-gdal3.12',
+        ('macos', 'arm64', '3.11'): 'gdal-h2gis-macos-arm64-gdal3.12',
+        ('macos', 'arm64', '3.12'): 'gdal-h2gis-macos-arm64-gdal3.12',
+        # macOS Intel (x86_64)
+        ('macos', 'x86_64', '3.3'): 'gdal-h2gis-macos-intel-x86_64',
+        ('macos', 'x86_64', '3.4'): 'gdal-h2gis-macos-intel-x86_64',
+        ('macos', 'x86_64', '3.5'): 'gdal-h2gis-macos-intel-x86_64',
+        ('macos', 'x86_64', '3.6'): 'gdal-h2gis-macos-intel-x86_64',
+        ('macos', 'x86_64', '3.7'): 'gdal-h2gis-macos-intel-x86_64',
+        ('macos', 'x86_64', '3.8'): 'gdal-h2gis-macos-intel-x86_64',
+        ('macos', 'x86_64', '3.9'): 'gdal-h2gis-macos-intel-x86_64',
+        ('macos', 'x86_64', '3.10'): 'gdal-h2gis-macos-intel-x86_64',
+        # Windows x64
         ('windows', 'x86_64', '3.8'): 'gdal-h2gis-windows-x64-gdal3.8',
         ('windows', 'x86_64', '3.9'): 'gdal-h2gis-windows-x64-gdal3.8',  # Best effort
     }
@@ -173,10 +185,8 @@ def get_h2gis_lib_subdir(platform_info: Dict[str, Any]) -> str:
     Returns:
         Subdirectory name: 'linux', 'windows', or 'macos'
     """
-    os_name = platform_info['os']
-    if os_name == 'darwin':
-        return 'macos'
-    return os_name
+    # OS is already normalized to 'macos' instead of 'darwin'
+    return platform_info['os']
 
 
 def is_driver_installed() -> bool:
