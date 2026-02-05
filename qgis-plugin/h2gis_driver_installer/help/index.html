@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>H2GIS Driver Installer - Help</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        h2 { color: #34495e; margin-top: 30px; }
+        h3 { color: #7f8c8d; }
+        code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
+        pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        .note { background: #e8f4f8; border-left: 4px solid #3498db; padding: 10px 15px; margin: 15px 0; }
+        .warning { background: #fdf3e8; border-left: 4px solid #e67e22; padding: 10px 15px; margin: 15px 0; }
+        table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background: #3498db; color: white; }
+        tr:nth-child(even) { background: #f9f9f9; }
+    </style>
+</head>
+<body>
+
+<h1>🗄️ H2GIS Driver Installer</h1>
+
+<p>This plugin automates the installation of the GDAL/OGR H2GIS driver, 
+allowing you to read and write H2GIS spatial databases (<code>.mv.db</code> files) 
+directly in QGIS.</p>
+
+<h2>📋 Table of Contents</h2>
+<ul>
+    <li><a href="#what-is-h2gis">What is H2GIS?</a></li>
+    <li><a href="#installation">Installation</a></li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#troubleshooting">Troubleshooting</a></li>
+    <li><a href="#supported-platforms">Supported Platforms</a></li>
+</ul>
+
+<h2 id="what-is-h2gis">🔷 What is H2GIS?</h2>
+<p>H2GIS is a spatial extension of the H2 database engine. It provides:</p>
+<ul>
+    <li>Full SQL support with spatial functions</li>
+    <li>Embedded database (no server needed)</li>
+    <li>Fast performance for GIS operations</li>
+    <li>Used by NoiseModelling and other GIS applications</li>
+</ul>
+
+<h2 id="installation">📥 Installation</h2>
+
+<h3>Step 1: Open the Installer</h3>
+<p>Go to <strong>Database</strong> → <strong>H2GIS Driver Installer</strong></p>
+
+<h3>Step 2: Check Platform Info</h3>
+<p>The dialog shows your detected platform information:</p>
+<ul>
+    <li><strong>OS</strong>: Linux, Windows, or macOS</li>
+    <li><strong>Architecture</strong>: x86_64 or arm64</li>
+    <li><strong>GDAL Version</strong>: Your installed GDAL version</li>
+</ul>
+
+<h3>Step 3: Install</h3>
+<p>Click <strong>Install Driver</strong> and wait for the download and installation to complete.</p>
+
+<h3>Step 4: Restart QGIS</h3>
+<div class="warning">
+    <strong>Important:</strong> You must restart QGIS for the driver to be loaded.
+</div>
+
+<h2 id="usage">🚀 Usage</h2>
+
+<h3>Opening H2GIS Files</h3>
+<p>After installation, you can open <code>.mv.db</code> files like any other data source:</p>
+<ol>
+    <li>Use <strong>Layer</strong> → <strong>Add Layer</strong> → <strong>Add Vector Layer</strong></li>
+    <li>Or drag and drop the <code>.mv.db</code> file into QGIS</li>
+    <li>Or use the Browser panel</li>
+</ol>
+
+<h3>Demo Database</h3>
+<p>Click <strong>Create Demo Database</strong> to generate a sample H2GIS database with:</p>
+<ul>
+    <li><code>cities</code> - Major French cities (points)</li>
+    <li><code>rivers</code> - Major rivers (lines)</li>
+    <li><code>france_boundary</code> - Country outline (polygon)</li>
+</ul>
+
+<h2 id="troubleshooting">🔧 Troubleshooting</h2>
+
+<h3>Driver not found after restart</h3>
+<p>Make sure the QGIS startup script is properly configured. The plugin creates 
+<code>qgis_h2gis_startup.py</code> in your QGIS profile directory.</p>
+
+<h3>Download failed</h3>
+<p>Check your internet connection. If behind a proxy, configure it in QGIS settings.</p>
+
+<h3>Unsupported platform</h3>
+<p>Pre-compiled binaries are available for common configurations. 
+For other platforms, you may need to compile from source.</p>
+
+<h2 id="supported-platforms">💻 Supported Platforms</h2>
+
+<table>
+    <tr>
+        <th>Operating System</th>
+        <th>Architecture</th>
+        <th>GDAL Versions</th>
+    </tr>
+    <tr>
+        <td>Linux (Ubuntu)</td>
+        <td>x86_64</td>
+        <td>3.4, 3.8, 3.10+</td>
+    </tr>
+    <tr>
+        <td>macOS</td>
+        <td>ARM64 (M1/M2/M3)</td>
+        <td>3.10+</td>
+    </tr>
+    <tr>
+        <td>macOS</td>
+        <td>Intel (x86_64)</td>
+        <td>3.3 - 3.10</td>
+    </tr>
+    <tr>
+        <td>Windows</td>
+        <td>x64</td>
+        <td>3.8+</td>
+    </tr>
+</table>
+
+<h2>📚 More Information</h2>
+<ul>
+    <li><a href="https://github.com/pierromond/H2GIS_gdalplugin">GitHub Repository</a></li>
+    <li><a href="https://github.com/pierromond/H2GIS_gdalplugin/issues">Report Issues</a></li>
+    <li><a href="http://www.h2gis.org/">H2GIS Project</a></li>
+    <li><a href="https://noise-planet.org/noisemodelling.html">NoiseModelling</a></li>
+</ul>
+
+</body>
+</html>

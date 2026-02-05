@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/plugins/h2gis_driver_installer">
+        <file>resources/icon.png</file>
+    </qresource>
+</RCC>
