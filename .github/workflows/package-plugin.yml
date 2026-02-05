@@ -112,21 +112,25 @@ jobs:
           SIZE=$(stat -c%s h2gis_driver_installer.zip)
           echo "ZIP size: $SIZE bytes"
 
-      # Upload the pre-made ZIP (will be double-zipped by GitHub)
-      - name: Upload plugin ZIP artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: h2gis-driver-installer-plugin-v${{ steps.version.outputs.version }}-zip
-          path: h2gis_driver_installer.zip
-          retention-days: 90
-          
-      # Upload folder directly - GitHub will create a ZIP with proper structure
-      # When downloaded, this will be a ZIP with h2gis_driver_installer/ at root
-      - name: Upload plugin folder (recommended for QGIS)
+      # Prepare folder structure for GitHub artifact
+      # GitHub Actions puts files flat, so we need to create the parent folder
+      - name: Prepare artifact with correct structure
+        run: |
+          mkdir -p artifact_staging/h2gis_driver_installer
+          cp -r qgis-plugin/h2gis_driver_installer/* artifact_staging/h2gis_driver_installer/
+          # Remove unwanted files
+          find artifact_staging -name "*.pyc" -delete
+          find artifact_staging -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+          find artifact_staging -name ".DS_Store" -delete
+          echo "Artifact structure:"
+          find artifact_staging -type f | head -20
+
+      # This artifact can be directly installed in QGIS via "Install from ZIP"
+      - name: Upload QGIS-ready plugin
         uses: actions/upload-artifact@v4
         with:
           name: h2gis_driver_installer
-          path: qgis-plugin/h2gis_driver_installer/
+          path: artifact_staging/
           retention-days: 90
 
       - name: Upload to release
