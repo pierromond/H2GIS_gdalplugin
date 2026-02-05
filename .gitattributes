@@ -1,0 +1,1 @@
+qgis-plugin/h2gis_driver_installer/resources/*.zip filter=lfs diff=lfs merge=lfs -text
