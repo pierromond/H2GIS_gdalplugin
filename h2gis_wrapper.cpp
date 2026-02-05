@@ -622,18 +622,8 @@ extern "C" int h2gis_wrapper_init(void)
         return -1;
     }
 
-    // Register atexit handler to ensure clean shutdown when process exits
-    /*
-    static bool atexit_registered = false;
-    if (!atexit_registered)
-    {
-        atexit(h2gis_wrapper_shutdown);
-        atexit_registered = true;
-        debug_log("h2gis_wrapper_init: atexit handler registered");
-    }
-    */
-    // NOTE: We now use GDAL's pfnUnloadDriver mechanism (OGRH2GISDriverUnload)
-    // to trigger shutdown. This is safer than atexit which may run too late.
+    // NOTE: We use GDAL's pfnUnloadDriver mechanism (OGRH2GISDriverUnload)
+    // to trigger shutdown instead of atexit which may run too late.
 
     debug_log("h2gis_wrapper_init: Success!");
     return 0;

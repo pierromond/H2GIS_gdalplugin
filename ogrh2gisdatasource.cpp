@@ -460,15 +460,6 @@ class OGRH2GISResultLayer final : public OGRLayer
     }
 };
 
-// Undo previous closing brace
-// static int LogDebugDS(const char* msg) {
-// static int LogDebugDS(const char* msg) {
-//    if (CPLGetConfigOption("H2GIS_DEBUG", nullptr)) {
-//        std::cerr << "OGRH2GISDataSource [" << pthread_self() << "]: " << msg << std::endl;
-//    }
-//    return 1;
-// }
-
 int OGRH2GISDataSource::Open(const char *pszFilename, int bUpdate,
                              const char *pszUser, const char *pszPassword)
 {

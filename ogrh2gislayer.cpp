@@ -4,13 +4,47 @@
 #include "ogr_h2gis.h"
 #include <cstring>
 #include <limits>
-#include <cstdio>
 #include "cpl_error.h"
+
+// Constants
+static constexpr int H2GIS_BATCH_SIZE = 1000;
 
 // Standard GDAL logging helper
 static void LogLayer(const char *func, const char *tableName)
 {
     CPLDebug("H2GIS", "[LAYER] %s: %s", func, tableName);
+}
+
+/**
+ * Prepare geometry for export to H2GIS.
+ * If target column is 2D but source geometry has Z, flatten to 2D.
+ * 
+ * @param poGeom Source geometry
+ * @param eTargetType Target geometry type from layer definition
+ * @param bNeedsDelete Output: true if returned geometry must be deleted by caller
+ * @return Geometry ready for WKB export (may be original or cloned+flattened)
+ */
+static OGRGeometry* PrepareGeometryForExport(OGRGeometry *poGeom, 
+                                              OGRwkbGeometryType eTargetType,
+                                              bool &bNeedsDelete)
+{
+    bNeedsDelete = false;
+    if (poGeom == nullptr)
+        return nullptr;
+    
+    bool bTargetHasZ = wkbHasZ(eTargetType);
+    bool bSourceHasZ = wkbHasZ(poGeom->getGeometryType());
+    
+    if (!bTargetHasZ && bSourceHasZ)
+    {
+        // Clone and flatten to 2D
+        OGRGeometry *poFlattened = poGeom->clone();
+        poFlattened->flattenTo2D();
+        bNeedsDelete = true;
+        return poFlattened;
+    }
+    
+    return poGeom;
 }
 
 // h2gis_free_result_buffer is declared in h2gis.h, no need to redeclare
@@ -1426,12 +1460,18 @@ OGRErr OGRH2GISLayer::ICreateFeature(OGRFeature *poFeature)
 
         sql += "\"" + geomName + "\"";
 
-        // WKB Version for better precision
+        // Prepare geometry for export (flatten Z if target is 2D)
         OGRGeometry *poGeom = poFeature->GetGeometryRef();
-        int nWkbSize = static_cast<int>(poGeom->WkbSize());
+        bool bFreeGeom = false;
+        OGRwkbGeometryType eTargetType = wkbUnknown;
+        if (m_poFeatureDefn->GetGeomFieldCount() > 0)
+            eTargetType = m_poFeatureDefn->GetGeomFieldDefn(0)->GetType();
+        OGRGeometry *poGeomToExport = PrepareGeometryForExport(poGeom, eTargetType, bFreeGeom);
+        
+        int nWkbSize = static_cast<int>(poGeomToExport->WkbSize());
         unsigned char *pabyWkb = (unsigned char *)CPLMalloc(nWkbSize);
 
-        if (poGeom->exportToWkb(wkbNDR, pabyWkb) == OGRERR_NONE)
+        if (poGeomToExport->exportToWkb(wkbNDR, pabyWkb) == OGRERR_NONE)
         {
             char *pszHex = CPLBinaryToHex(nWkbSize, pabyWkb);
 
@@ -1471,6 +1511,8 @@ OGRErr OGRH2GISLayer::ICreateFeature(OGRFeature *poFeature)
             values += "NULL";
         }
         CPLFree(pabyWkb);
+        if (bFreeGeom)
+            delete poGeomToExport;
 
         first = false;
     }
@@ -1670,11 +1712,18 @@ OGRErr OGRH2GISLayer::ISetFeature(OGRFeature *poFeature)
 
         sql += "\"" + geomName + "\" = ";
 
+        // Prepare geometry for export (flatten Z if target is 2D)
         OGRGeometry *poGeom = poFeature->GetGeometryRef();
-        int nWkbSize = static_cast<int>(poGeom->WkbSize());
+        bool bFreeGeom = false;
+        OGRwkbGeometryType eTargetType = wkbUnknown;
+        if (m_poFeatureDefn->GetGeomFieldCount() > 0)
+            eTargetType = m_poFeatureDefn->GetGeomFieldDefn(0)->GetType();
+        OGRGeometry *poGeomToExport = PrepareGeometryForExport(poGeom, eTargetType, bFreeGeom);
+        
+        int nWkbSize = static_cast<int>(poGeomToExport->WkbSize());
         unsigned char *pabyWkb = (unsigned char *)CPLMalloc(nWkbSize);
 
-        if (poGeom->exportToWkb(wkbNDR, pabyWkb) == OGRERR_NONE)
+        if (poGeomToExport->exportToWkb(wkbNDR, pabyWkb) == OGRERR_NONE)
         {
             char *pszHex = CPLBinaryToHex(nWkbSize, pabyWkb);
 
@@ -1714,6 +1763,8 @@ OGRErr OGRH2GISLayer::ISetFeature(OGRFeature *poFeature)
             sql += "NULL";
         }
         CPLFree(pabyWkb);
+        if (bFreeGeom)
+            delete poGeomToExport;
 
         first = false;
     }
