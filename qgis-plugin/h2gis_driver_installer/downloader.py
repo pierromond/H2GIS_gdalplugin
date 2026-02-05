@@ -26,11 +26,15 @@ GITHUB_ACTIONS_URL = f"https://github.com/{GITHUB_REPO_DRIVER}/actions"
 # These point to the "latest" release which is auto-updated by CI
 RELEASES_BASE_URL = f"https://github.com/{GITHUB_REPO_DRIVER}/releases/latest/download"
 
-# H2GIS native library is bundled in this repo (public raw file)
+# H2GIS native library is served from GitHub Releases (LFS files don't work via raw URLs)
 H2GIS_LIB_URL = (
-    "https://raw.githubusercontent.com/pierromond/H2GIS_gdalplugin/main/"
-    "qgis-plugin/h2gis_driver_installer/resources/h2gis-native-libs.zip"
+    f"https://github.com/{GITHUB_REPO_DRIVER}/releases/latest/download/"
+    "h2gis-native-libs.zip"
 )
+
+# SHA256 verification (disabled for bundled files - we trust our own repo)
+H2GIS_VERIFY_SHA256 = False
+H2GIS_EXPECTED_SHA256 = None  # Set if verification is enabled
 
 # Driver artifacts by platform
 def get_driver_download_url(artifact_name: str) -> str:

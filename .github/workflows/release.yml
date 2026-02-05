@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download all artifacts from CI run
         uses: dawidd6/action-download-artifact@v3
