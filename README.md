@@ -90,24 +90,89 @@ print(gdal.__version__)
 
 ## Installation
 
-### Option A: Pre-built binary (if your GDAL version matches)
+The installation process involves two steps:
+1. Installing the compiled **GDAL Plugin** (`gdal_H2GIS.so/dll/dylib`).
+2. Installing the **H2GIS Native Library** (`libh2gis.so`, `h2gis.dll`, or `libh2gis.dylib`).
 
+### 1. Prerequisites
+
+- **Determine your GDAL version**:
+  ```bash
+  ogrinfo --version
+  # or in Python
+  python -c "from osgeo import gdal; print(gdal.__version__)"
+  ```
+- **Download the artifact**: Go to [GitHub Actions](https://github.com/pierromond/H2GIS_gdalplugin/actions), select the latest successfull run, and download the artifact matching your OS and GDAL version.
+
+### 2. Install on Linux
+
+**A. Install the Plugin:**
+Copy `gdal_H2GIS.so` to your GDAL plugins directory.
 ```bash
-# Download the matching artifact from GitHub Actions
-# Extract and install:
-sudo cp gdal_H2GIS.so /usr/lib/x86_64-linux-gnu/gdalplugins/
+# Common locations:
+# /usr/lib/gdalplugins
+# /usr/lib/x86_64-linux-gnu/gdalplugins/ (Ubuntu/Debian)
+# /usr/local/lib/gdalplugins
 
-# Install H2GIS native library
-pip install h2gis
-H2GIS_LIB=$(python3 -c "import h2gis; print(h2gis.__path__[0])")/lib/libh2gis.so
-sudo cp $H2GIS_LIB /usr/local/lib/
-sudo ldconfig
-
-# Verify
-ogrinfo --formats | grep H2GIS
+sudo mkdir -p /usr/lib/gdalplugins
+sudo cp gdal_H2GIS.so /usr/lib/gdalplugins/
 ```
 
-### Option B: Build from source (recommended for QGIS/custom GDAL)
+**B. Install H2GIS Library:**
+The easiest way is using pip, which installs the native library automatically.
+```bash
+pip install h2gis
+# Set environment variable (add to ~/.bashrc)
+export H2GIS_NATIVE_LIB=$(python3 -c "import h2gis; import os; print(os.path.join(os.path.dirname(h2gis.__file__), 'lib', 'libh2gis.so'))")
+```
+*Alternatively, copy `libh2gis.so` from the artifact zip to `/usr/local/lib/` and run `sudo ldconfig`.*
+
+### 3. Install on Windows (QGIS / OSGeo4W)
+
+**A. Install the Plugin:**
+1. Locate your GDAL plugins directory.
+   - For **QGIS Standalone**: `C:\Program Files\QGIS 3.xx\bin\gdalplugins`
+   - For **OSGeo4W**: `C:\OSGeo4W\bin\gdalplugins`
+2. Create the folder `gdalplugins` if it doesn't exist.
+3. Copy `gdal_H2GIS.dll` into that folder.
+
+**B. Install H2GIS Library:**
+1. Extract `h2gis.dll` from the downloaded artifact (or install via `pip install h2gis`).
+2. Place `h2gis.dll` in a directory included in your system `PATH` (e.g., `C:\Program Files\QGIS 3.xx\bin`) OR simply place it **next to the `gdal_H2GIS.dll`**.
+3. *Optional*: Set an environment variable `H2GIS_LIBRARY` pointing to the full path of `h2gis.dll`.
+
+### 4. Install on macOS
+
+**A. Install the Plugin:**
+Copy `gdal_H2GIS.dylib` to the GDAL plugins directory.
+```bash
+# For Homebrew GDAL:
+/usr/local/lib/gdalplugins/
+# or
+/opt/homebrew/lib/gdalplugins/
+
+# For QGIS.app (official installer):
+/Applications/QGIS.app/Contents/Resources/gdal/gdalplugins/
+# Note: You may need to create the directory
+```
+
+**B. Install H2GIS Library:**
+```bash
+pip install h2gis
+# Set environment variable
+export H2GIS_NATIVE_LIB=$(python3 -c "import h2gis; import os; print(os.path.join(os.path.dirname(h2gis.__file__), 'lib', 'libh2gis.dylib'))")
+```
+
+### Verification
+Run `ogrinfo --formats` and look for "H2GIS".
+```bash
+ogrinfo --formats | grep H2GIS
+# Output: "H2GIS" (read/write)
+```
+
+---
+
+## Build from Source
 
 ```bash
 # 1. Install dependencies
