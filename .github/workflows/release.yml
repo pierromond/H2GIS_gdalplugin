@@ -1,0 +1,117 @@
+# Auto-release workflow
+# Creates/updates the "latest" release with all driver artifacts
+# This makes downloads public without authentication
+
+name: Release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  H2GIS_ARTIFACT_ID: "5341331001"
+
+jobs:
+  release:
+    name: Update Latest Release
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts from CI run
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: ci.yml
+          run_id: ${{ github.event.workflow_run.id }}
+          path: artifacts
+        if: github.event.workflow_run.id
+
+      - name: Download artifacts (manual trigger)
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: ci.yml
+          branch: main
+          path: artifacts
+        if: github.event_name == 'workflow_dispatch'
+
+      - name: Use bundled H2GIS native library
+        run: |
+          if [ -f qgis-plugin/h2gis_driver_installer/resources/h2gis-native-libs.zip ]; then
+            mkdir -p artifacts
+            cp qgis-plugin/h2gis_driver_installer/resources/h2gis-native-libs.zip artifacts/
+            echo "H2GIS libs packaged from repo:"
+            unzip -l artifacts/h2gis-native-libs.zip
+          else
+            echo "WARNING: h2gis-native-libs.zip not found in repo!"
+          fi
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          
+          # Package each driver artifact
+          for dir in artifacts/*/; do
+            name=$(basename "$dir")
+            if [ "$name" != "h2gis_driver_installer" ]; then
+              echo "Packaging $name..."
+              (cd "$dir" && zip -r "../../release-assets/${name}.zip" .)
+            fi
+          done
+          
+          # Copy H2GIS library if present
+          if [ -f artifacts/h2gis-native-libs.zip ]; then
+            cp artifacts/h2gis-native-libs.zip release-assets/
+          fi
+          
+          echo "=== Release assets ==="
+          ls -la release-assets/
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Create/Update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build (${{ steps.date.outputs.date }})
+          body: |
+            ## Latest GDAL H2GIS Driver Builds
+            
+            Automatically updated from the latest successful CI build.
+            
+            ### Available Downloads
+            
+            | Platform | GDAL Version | File |
+            |----------|--------------|------|
+            | Ubuntu 22.04 | 3.4 | `gdal-h2gis-ubuntu22.04-gdal3.4.zip` |
+            | Ubuntu 24.04 | 3.8 | `gdal-h2gis-ubuntu24.04-gdal3.8.zip` |
+            | Ubuntu 25.10 | 3.10 | `gdal-h2gis-ubuntu25.10-gdal3.10.zip` |
+            | macOS ARM64 | 3.12 | `gdal-h2gis-macos-arm64-gdal3.12.zip` |
+            | macOS Intel | - | `gdal-h2gis-macos-intel-x86_64.zip` |
+            | Windows x64 | 3.8 | `gdal-h2gis-windows-x64-gdal3.8.zip` |
+            | Windows x64 | 3.10 | `gdal-h2gis-windows-x64-gdal3.10.zip` |
+            
+            ### H2GIS Native Library
+            
+            The `h2gis-native-libs.zip` contains the H2GIS native library for all platforms.
+            
+            ### Installation
+            
+            Use the QGIS plugin **H2GIS Driver Installer** for automatic installation,
+            or download manually and place in your GDAL plugins directory.
+          draft: false
+          prerelease: false
+          make_latest: true
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

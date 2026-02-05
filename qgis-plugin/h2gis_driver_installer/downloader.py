@@ -3,7 +3,7 @@
 """
 Download utilities for H2GIS Driver Installer.
 
-Downloads driver binaries from GitHub and H2GIS native library from nightly.link.
+Downloads driver binaries from GitHub Releases and H2GIS native library from this repository.
 """
 
 import hashlib
@@ -18,24 +18,28 @@ from urllib.error import URLError, HTTPError
 from qgis.core import QgsMessageLog, Qgis
 
 
-# H2GIS native library from orbisgis/h2gis CI GraalVM workflow
-# Using nightly.link dynamic URL - always fetches latest successful build from master branch
-H2GIS_ARTIFACT_URL = "https://nightly.link/orbisgis/h2gis/workflows/CI%20GraalVM.yml/master/h2gis-graalvm-all-platforms.zip"
-# Note: SHA256 verification disabled for dynamic downloads (content changes with each build)
-H2GIS_VERIFY_SHA256 = False
+# GitHub repositories
+GITHUB_REPO_DRIVER = "pierromond/H2GIS_gdalplugin"
+GITHUB_ACTIONS_URL = f"https://github.com/{GITHUB_REPO_DRIVER}/actions"
 
-# GDAL driver artifacts from pierromond/H2GIS_gdalplugin
-# These URLs always fetch the latest successful build from main branch
-GDAL_DRIVER_BASE_URL = "https://nightly.link/pierromond/H2GIS_gdalplugin/workflows/ci.yml/main"
+# Download URLs from GitHub Releases (public, no auth needed)
+# These point to the "latest" release which is auto-updated by CI
+RELEASES_BASE_URL = f"https://github.com/{GITHUB_REPO_DRIVER}/releases/latest/download"
 
-# Mapping of artifact names to their nightly.link URLs
+# H2GIS native library is bundled in this repo (public raw file)
+H2GIS_LIB_URL = (
+    "https://raw.githubusercontent.com/pierromond/H2GIS_gdalplugin/main/"
+    "qgis-plugin/h2gis_driver_installer/resources/h2gis-native-libs.zip"
+)
+
+# Driver artifacts by platform
 def get_driver_download_url(artifact_name: str) -> str:
-    """Get the nightly.link URL for a specific driver artifact."""
-    return f"{GDAL_DRIVER_BASE_URL}/{artifact_name}.zip"
+    """Get the download URL for a specific driver artifact from GitHub Releases."""
+    return f"{RELEASES_BASE_URL}/{artifact_name}.zip"
 
-# GitHub repository for GDAL driver
-GITHUB_REPO = "pierromond/H2GIS_gdalplugin"
-GITHUB_ACTIONS_URL = f"https://github.com/{GITHUB_REPO}/actions"
+def get_h2gis_download_url() -> str:
+    """Get the download URL for H2GIS library from this repository."""
+    return H2GIS_LIB_URL
 
 
 class DownloadError(Exception):
@@ -129,13 +133,16 @@ def download_h2gis_library(dest_dir: Path,
         tmp_path = Path(tmp_dir)
         zip_path = tmp_path / "h2gis-libs.zip"
         
+        # Get download URL (dynamically from API or fallback to static)
+        download_url = get_h2gis_download_url()
+        
         # Download artifact
         QgsMessageLog.logMessage(
-            f"Downloading H2GIS library from {H2GIS_ARTIFACT_URL}",
+            f"Downloading H2GIS library from {download_url}",
             "H2GIS",
             Qgis.Info
         )
-        download_file(H2GIS_ARTIFACT_URL, zip_path, progress_callback)
+        download_file(download_url, zip_path, progress_callback)
         
         # Verify hash only if configured (disabled for dynamic nightly.link URLs)
         if verify_hash and H2GIS_VERIFY_SHA256:
