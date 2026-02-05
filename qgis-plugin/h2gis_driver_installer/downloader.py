@@ -106,7 +106,7 @@ def download_h2gis_library(dest_dir: Path,
     Args:
         dest_dir: Directory to extract to
         platform_subdir: 'linux', 'windows', or 'macos'
-        lib_name: Library filename ('libh2gis.so', 'h2gis.dll', 'libh2gis.dylib')
+        lib_name: Library filename ('h2gis.so', 'h2gis.dll', 'h2gis.dylib')
         progress_callback: Optional progress callback
         verify_hash: Whether to verify SHA256 hash
         

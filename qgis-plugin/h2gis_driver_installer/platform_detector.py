@@ -27,7 +27,7 @@ def get_platform_info() -> Dict[str, Any]:
         - gdal_major_minor: '3.8'
         - qgis_version: '3.34.0', etc.
         - driver_extension: '.so', '.dll', '.dylib'
-        - h2gis_lib_name: 'libh2gis.so', 'h2gis.dll', 'libh2gis.dylib'
+        - h2gis_lib_name: 'h2gis.so', 'h2gis.dll', 'h2gis.dylib'
     """
     info = {}
     
@@ -36,7 +36,7 @@ def get_platform_info() -> Dict[str, Any]:
     if system == 'linux':
         info['os'] = 'linux'
         info['driver_extension'] = '.so'
-        info['h2gis_lib_name'] = 'libh2gis.so'
+        info['h2gis_lib_name'] = 'h2gis.so'
     elif system == 'windows':
         info['os'] = 'windows'
         info['driver_extension'] = '.dll'
@@ -44,11 +44,11 @@ def get_platform_info() -> Dict[str, Any]:
     elif system == 'darwin':
         info['os'] = 'macos'  # Normalize 'darwin' to 'macos' for clarity
         info['driver_extension'] = '.dylib'
-        info['h2gis_lib_name'] = 'libh2gis.dylib'
+        info['h2gis_lib_name'] = 'h2gis.dylib'
     else:
         info['os'] = system
         info['driver_extension'] = '.so'
-        info['h2gis_lib_name'] = 'libh2gis.so'
+        info['h2gis_lib_name'] = 'h2gis.so'
     
     # Architecture
     machine = platform.machine().lower()
