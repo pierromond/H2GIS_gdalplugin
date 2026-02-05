@@ -229,8 +229,8 @@ jobs:
           info = get_platform_info()
           print(f"[OK] platform_detector.py - {info['os']}/{info['arch']}")
           
-          from h2gis_driver_installer.downloader import H2GIS_ARTIFACT_URL
-          print("[OK] downloader.py")
+          from h2gis_driver_installer.downloader import H2GIS_LIB_URL, get_driver_download_url
+          print(f"[OK] downloader.py - H2GIS URL: {H2GIS_LIB_URL[:50]}...")
           
           from h2gis_driver_installer.installer import H2GISInstaller
           print("[OK] installer.py")
