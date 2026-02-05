@@ -1428,7 +1428,7 @@ OGRErr OGRH2GISLayer::ICreateFeature(OGRFeature *poFeature)
 
         // WKB Version for better precision
         OGRGeometry *poGeom = poFeature->GetGeometryRef();
-        int nWkbSize = poGeom->WkbSize();
+        int nWkbSize = static_cast<int>(poGeom->WkbSize());
         unsigned char *pabyWkb = (unsigned char *)CPLMalloc(nWkbSize);
 
         if (poGeom->exportToWkb(wkbNDR, pabyWkb) == OGRERR_NONE)
@@ -1671,7 +1671,7 @@ OGRErr OGRH2GISLayer::ISetFeature(OGRFeature *poFeature)
         sql += "\"" + geomName + "\" = ";
 
         OGRGeometry *poGeom = poFeature->GetGeometryRef();
-        int nWkbSize = poGeom->WkbSize();
+        int nWkbSize = static_cast<int>(poGeom->WkbSize());
         unsigned char *pabyWkb = (unsigned char *)CPLMalloc(nWkbSize);
 
         if (poGeom->exportToWkb(wkbNDR, pabyWkb) == OGRERR_NONE)

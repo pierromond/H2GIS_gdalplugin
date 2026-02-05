@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: 2024-2026 H2GIS Team
 
 #include "ogr_h2gis.h"
-#include <mutex>
 #include <cstring>
 #include <cstdio>
 #include <string>
@@ -11,13 +10,15 @@
 
 #include "cpl_error.h"
 
-#include <pthread.h>
+#include <sstream>
 
 // Types and functions come from ogr_h2gis.h which includes h2gis.h and graal_isolate.h
 
 static void LogDebugDS(const char *msg)
 {
-    CPLDebug("H2GIS", "[DS][Thread %lu] %s", (unsigned long)pthread_self(),
+    std::stringstream ss;
+    ss << std::this_thread::get_id();
+    CPLDebug("H2GIS", "[DS][Thread %s] %s", ss.str().c_str(),
              msg);
 }
 

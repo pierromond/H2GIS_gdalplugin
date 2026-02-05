@@ -18,6 +18,7 @@
 #include "h2gis_wrapper.h"
 
 #include "cpl_error.h"  // For CPLDebug
+#include "cpl_conv.h"   // For CPLGetConfigOption
 
 // ============================================================================
 // Platform abstraction layer
@@ -388,10 +389,10 @@ static void *worker_thread_func(void *arg)
     debug_log("worker_thread_func: Starting worker thread with 64MB stack");
 
     // Load library and create isolate HERE (on the large-stack thread)
-    const char *lib_path = getenv("H2GIS_NATIVE_LIB");
+    const char *lib_path = CPLGetConfigOption("H2GIS_NATIVE_LIB", nullptr);
     if (!lib_path)
     {
-        lib_path = getenv("H2GIS_LIBRARY");
+        lib_path = CPLGetConfigOption("H2GIS_LIBRARY", nullptr);
     }
 
     // Get platform-specific fallback paths
