@@ -480,7 +480,7 @@ jobs:
           echo "GDAL_INCLUDE: $GDAL_INCLUDE"
           echo "GDAL_LIB: $GDAL_LIB"
           
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+          cmake -B build -G "Visual Studio 17 2022" -A x64 \
             -DGDAL_INCLUDE_DIR="$GDAL_INCLUDE" \
             -DGDAL_LIBRARY="$GDAL_LIB"
 
@@ -496,4 +496,5 @@ jobs:
         with:
           name: gdal-h2gis-windows-x64-gdal3.10
           path: |
+            build/Release/gdal_H2GIS.dll
             build/gdal_H2GIS.dll

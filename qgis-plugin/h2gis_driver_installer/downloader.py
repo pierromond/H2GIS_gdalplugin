@@ -137,16 +137,30 @@ def download_h2gis_library(dest_dir: Path,
         tmp_path = Path(tmp_dir)
         zip_path = tmp_path / "h2gis-libs.zip"
         
-        # Get download URL (dynamically from API or fallback to static)
-        download_url = get_h2gis_download_url()
+        # Check for bundled resource first (Dev/local install mode)
+        bundled_zip = Path(__file__).parent / "resources" / "h2gis-native-libs.zip"
         
-        # Download artifact
-        QgsMessageLog.logMessage(
-            f"Downloading H2GIS library from {download_url}",
-            "H2GIS",
-            Qgis.Info
-        )
-        download_file(download_url, zip_path, progress_callback)
+        if bundled_zip.exists():
+            QgsMessageLog.logMessage(
+                f"Using bundled H2GIS library from {bundled_zip}",
+                "H2GIS",
+                Qgis.Info
+            )
+            import shutil
+            shutil.copy2(bundled_zip, zip_path)
+            # Skip hash verification for bundled local file
+            verify_hash = False
+        else:
+            # Get download URL (dynamically from API or fallback to static)
+            download_url = get_h2gis_download_url()
+            
+            # Download artifact
+            QgsMessageLog.logMessage(
+                f"Downloading H2GIS library from {download_url}",
+                "H2GIS",
+                Qgis.Info
+            )
+            download_file(download_url, zip_path, progress_callback)
         
         # Verify hash only if configured (disabled for dynamic nightly.link URLs)
         if verify_hash and H2GIS_VERIFY_SHA256:
