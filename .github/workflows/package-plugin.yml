@@ -160,6 +160,7 @@ jobs:
           sys.modules['osgeo'] = types.ModuleType('osgeo')
           sys.modules['osgeo.gdal'] = types.ModuleType('osgeo.gdal')
           sys.modules['osgeo.gdal'].VersionInfo = lambda x='VERSION_NUM': '3100000'
+          sys.modules['osgeo.gdal'].__version__ = '3.10.0'
           
           # Test imports
           print("Testing plugin imports on", sys.platform)
