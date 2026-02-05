@@ -18,11 +18,20 @@ from urllib.error import URLError, HTTPError
 from qgis.core import QgsMessageLog, Qgis
 
 
-# H2GIS native library artifact from orbisgis/h2gis
-# Latest build from CI GraalVM workflow (Run 12, commit 4b4ca00, Feb 2 2026)
-H2GIS_ARTIFACT_ID = "5341331001"
-H2GIS_ARTIFACT_URL = f"https://nightly.link/orbisgis/h2gis/actions/artifacts/{H2GIS_ARTIFACT_ID}.zip"
-H2GIS_EXPECTED_SHA256 = "80c293f6fce732b62978ea7100e17c7e3efb83ca53721ae9fbfc7d16bc9e77e4"
+# H2GIS native library from orbisgis/h2gis CI GraalVM workflow
+# Using nightly.link dynamic URL - always fetches latest successful build from master branch
+H2GIS_ARTIFACT_URL = "https://nightly.link/orbisgis/h2gis/workflows/CI%20GraalVM.yml/master/h2gis-graalvm-all-platforms.zip"
+# Note: SHA256 verification disabled for dynamic downloads (content changes with each build)
+H2GIS_VERIFY_SHA256 = False
+
+# GDAL driver artifacts from pierromond/H2GIS_gdalplugin
+# These URLs always fetch the latest successful build from main branch
+GDAL_DRIVER_BASE_URL = "https://nightly.link/pierromond/H2GIS_gdalplugin/workflows/ci.yml/main"
+
+# Mapping of artifact names to their nightly.link URLs
+def get_driver_download_url(artifact_name: str) -> str:
+    """Get the nightly.link URL for a specific driver artifact."""
+    return f"{GDAL_DRIVER_BASE_URL}/{artifact_name}.zip"
 
 # GitHub repository for GDAL driver
 GITHUB_REPO = "pierromond/H2GIS_gdalplugin"
@@ -128,15 +137,22 @@ def download_h2gis_library(dest_dir: Path,
         )
         download_file(H2GIS_ARTIFACT_URL, zip_path, progress_callback)
         
-        # Verify hash if requested
-        if verify_hash:
+        # Verify hash only if configured (disabled for dynamic nightly.link URLs)
+        if verify_hash and H2GIS_VERIFY_SHA256:
             actual_hash = calculate_sha256(zip_path)
-            if actual_hash != H2GIS_EXPECTED_SHA256:
+            expected_hash = getattr(__import__(__name__), 'H2GIS_EXPECTED_SHA256', None)
+            if expected_hash and actual_hash != expected_hash:
                 raise DownloadError(
-                    f"SHA256 mismatch! Expected {H2GIS_EXPECTED_SHA256}, got {actual_hash}"
+                    f"SHA256 mismatch! Expected {expected_hash}, got {actual_hash}"
                 )
             QgsMessageLog.logMessage(
                 "SHA256 hash verified successfully",
+                "H2GIS",
+                Qgis.Info
+            )
+        else:
+            QgsMessageLog.logMessage(
+                "SHA256 verification skipped (dynamic download)",
                 "H2GIS",
                 Qgis.Info
             )
@@ -202,10 +218,9 @@ def download_gdal_driver(artifact_name: str,
                          driver_extension: str,
                          progress_callback: Optional[Callable[[int, int], None]] = None) -> Path:
     """
-    Download GDAL H2GIS driver from GitHub Actions artifacts.
+    Download GDAL H2GIS driver from GitHub Actions artifacts via nightly.link.
     
-    Note: This requires the artifacts to be available. For now, we'll use
-    nightly.link which provides public access to artifacts.
+    Uses dynamic URLs that always fetch the latest successful build.
     
     Args:
         artifact_name: Name of the artifact (e.g., 'gdal-h2gis-ubuntu24.04-gdal3.8')
@@ -219,19 +234,71 @@ def download_gdal_driver(artifact_name: str,
     Raises:
         DownloadError: If download fails
     """
-    # For GitHub Actions artifacts, we need to use nightly.link or GitHub Releases
-    # nightly.link format: https://nightly.link/{owner}/{repo}/actions/artifacts/{artifact_id}.zip
-    # 
-    # For now, we'll provide instructions to download manually or use releases
-    # Once releases are set up, this will be updated
-    
-    raise DownloadError(
-        f"Automatic GDAL driver download not yet available.\n\n"
-        f"Please download '{artifact_name}' manually from:\n"
-        f"{GITHUB_ACTIONS_URL}\n\n"
-        f"Then place 'gdal_H2GIS{driver_extension}' in:\n"
-        f"{dest_dir}"
-    )
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        zip_path = tmp_path / "gdal-driver.zip"
+        
+        # Use nightly.link dynamic URL - always fetches latest successful build
+        download_url = get_driver_download_url(artifact_name)
+        
+        QgsMessageLog.logMessage(
+            f"Downloading GDAL driver from {download_url}",
+            "H2GIS",
+            Qgis.Info
+        )
+        
+        try:
+            download_file(download_url, zip_path, progress_callback)
+        except DownloadError as e:
+            raise DownloadError(
+                f"Failed to download GDAL driver '{artifact_name}'.\n\n"
+                f"URL: {download_url}\n"
+                f"Error: {e}\n\n"
+                f"You can try downloading manually from:\n"
+                f"{GITHUB_ACTIONS_URL}"
+            )
+        
+        # Extract
+        extract_dir = tmp_path / "extracted"
+        extract_dir.mkdir()
+        
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            zf.extractall(extract_dir)
+        
+        # Find the driver file
+        driver_name = f"gdal_H2GIS{driver_extension}"
+        driver_path = None
+        
+        for match in extract_dir.rglob(driver_name):
+            driver_path = match
+            break
+        
+        if not driver_path:
+            # Also check without extension variations
+            for match in extract_dir.rglob("gdal_H2GIS*"):
+                if match.suffix == driver_extension:
+                    driver_path = match
+                    break
+        
+        if not driver_path:
+            found_files = list(extract_dir.rglob("*"))
+            raise DownloadError(
+                f"Could not find {driver_name} in artifact.\n"
+                f"Found files: {[f.name for f in found_files if f.is_file()]}"
+            )
+        
+        # Copy to destination
+        dest_driver_path = dest_dir / driver_name
+        import shutil
+        shutil.copy2(driver_path, dest_driver_path)
+        
+        QgsMessageLog.logMessage(
+            f"Extracted GDAL driver to {dest_driver_path}",
+            "H2GIS",
+            Qgis.Info
+        )
+        
+        return dest_driver_path
 
 
 def get_latest_release_url(artifact_name: str, driver_extension: str) -> Optional[str]:
