@@ -169,6 +169,9 @@ def get_artifact_name(platform_info: Dict[str, Any]) -> Optional[str]:
         # Windows x64
         ('windows', 'x86_64', '3.8'): 'gdal-h2gis-windows-x64-gdal3.8',
         ('windows', 'x86_64', '3.9'): 'gdal-h2gis-windows-x64-gdal3.8',  # Best effort
+        ('windows', 'x86_64', '3.10'): 'gdal-h2gis-windows-x64-gdal3.10',
+        ('windows', 'x86_64', '3.11'): 'gdal-h2gis-windows-x64-gdal3.10',  # Best effort
+        ('windows', 'x86_64', '3.12'): 'gdal-h2gis-windows-x64-gdal3.10',  # Best effort
     }
     
     key = (os_name, arch, gdal_mm)

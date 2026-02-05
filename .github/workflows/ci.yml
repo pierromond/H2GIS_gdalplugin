@@ -429,3 +429,65 @@ jobs:
             build/Release/gdal_H2GIS.dll
             build/gdal_H2GIS.dll
 
+  build-windows-gdal310:
+    name: Build (Windows x64 + GDAL 3.10)
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Miniforge
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          activate-environment: build
+          python-version: "3.11"
+
+      - name: Install GDAL via conda
+        run: |
+          conda install -y -c conda-forge gdal=3.10 cmake ninja
+
+      - name: Verify GDAL version
+        run: |
+          gdalinfo --version
+          python -c "from osgeo import gdal; print(f'GDAL {gdal.VersionInfo(\"RELEASE_NAME\")}')"
+
+      - name: Download H2GIS native library
+        run: |
+          curl -L -o h2gis-libs.zip "https://nightly.link/orbisgis/h2gis/actions/artifacts/${{ env.H2GIS_ARTIFACT_ID }}.zip"
+          unzip h2gis-libs.zip
+          unzip -o h2gis-graalvm-all-platforms.zip 2>/dev/null || true
+          ls -la
+          if [ -f h2gis.dll ]; then
+            echo "h2gis.dll found"
+          else
+            echo "Warning: h2gis.dll not found"
+          fi
+
+      - name: Configure CMake
+        run: |
+          # Find GDAL paths from conda
+          GDAL_INCLUDE=$(python -c "import os; from osgeo import gdal; print(os.path.join(os.path.dirname(os.path.dirname(gdal.__file__)), 'Library', 'include'))")
+          GDAL_LIB=$(python -c "import os; from osgeo import gdal; print(os.path.join(os.path.dirname(os.path.dirname(gdal.__file__)), 'Library', 'lib'))")
+          echo "GDAL_INCLUDE: $GDAL_INCLUDE"
+          echo "GDAL_LIB: $GDAL_LIB"
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DGDAL_INCLUDE_DIR="$GDAL_INCLUDE" \
+            -DGDAL_LIBRARY="$GDAL_LIB/gdal.lib"
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Verify build
+        run: |
+          find build -name "*.dll" -type f
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gdal-h2gis-windows-x64-gdal3.10
+          path: |
+            build/gdal_H2GIS.dll
