@@ -10,16 +10,11 @@
 
 #include "cpl_error.h"
 
-#include <sstream>
-
 // Types and functions come from ogr_h2gis.h which includes h2gis.h and graal_isolate.h
 
 static void LogDebugDS(const char *msg)
 {
-    std::stringstream ss;
-    ss << std::this_thread::get_id();
-    CPLDebug("H2GIS", "[DS][Thread %s] %s", ss.str().c_str(),
-             msg);
+    CPLDebug("H2GIS", "[DS] %s", msg);
 }
 
 OGRH2GISDataSource::OGRH2GISDataSource()

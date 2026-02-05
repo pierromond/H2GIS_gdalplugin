@@ -4,6 +4,10 @@ project(gdal_h2gis_driver)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(WIN32)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+endif()
+
 # Option for portable binary (statically link libstdc++) - Linux/GCC only
 option(PORTABLE_BUILD "Build portable binary with static libstdc++" OFF)
 
