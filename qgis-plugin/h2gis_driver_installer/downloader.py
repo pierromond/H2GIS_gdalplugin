@@ -19,8 +19,8 @@ from qgis.core import QgsMessageLog, Qgis
 
 
 # H2GIS native library artifact from orbisgis/h2gis
-# This is the specific build requested by the user
-H2GIS_ARTIFACT_ID = "5293812301"
+# Latest build from CI GraalVM workflow (Run 12, commit 4b4ca00, Feb 2 2026)
+H2GIS_ARTIFACT_ID = "5341331001"
 H2GIS_ARTIFACT_URL = f"https://nightly.link/orbisgis/h2gis/actions/artifacts/{H2GIS_ARTIFACT_ID}.zip"
 H2GIS_EXPECTED_SHA256 = "80c293f6fce732b62978ea7100e17c7e3efb83ca53721ae9fbfc7d16bc9e77e4"
 
