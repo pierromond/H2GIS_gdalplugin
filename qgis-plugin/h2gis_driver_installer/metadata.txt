@@ -1,0 +1,42 @@
+[general]
+name=H2GIS Driver Installer
+qgisMinimumVersion=3.28
+qgisMaximumVersion=3.99
+description=Install the GDAL H2GIS driver to read/write H2GIS spatial databases (.mv.db) in QGIS
+about=This plugin automates the installation of the native GDAL/OGR H2GIS driver. 
+    It detects your QGIS GDAL version, downloads the matching pre-compiled binary, 
+    and configures everything automatically. Also includes a demo H2GIS database 
+    to get started quickly.
+    
+    Features:
+    - Automatic OS and GDAL version detection
+    - Downloads matching pre-compiled driver binary
+    - Installs H2GIS native library
+    - Creates sample demo database
+    - No admin rights required (user installation)
+    
+    After installation, you can open .mv.db files directly in QGIS!
+
+version=1.0.0
+author=NoiseModelling/H2GIS Community
+email=contact@noise-planet.org
+
+changelog=
+    1.0.0 - Initial release
+        - Automatic driver installation for Linux, Windows, macOS
+        - GDAL version detection and binary matching
+        - Demo database creation
+        - User-space installation (no admin required)
+
+tags=h2gis,database,spatial,ogr,gdal,driver,noisemodelling,gis
+
+homepage=https://github.com/pierromond/H2GIS_gdalplugin
+tracker=https://github.com/pierromond/H2GIS_gdalplugin/issues
+repository=https://github.com/pierromond/H2GIS_gdalplugin
+
+icon=resources/icon.png
+
+experimental=True
+deprecated=False
+
+category=Database
