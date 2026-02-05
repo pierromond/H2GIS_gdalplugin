@@ -1,0 +1,179 @@
+# QGIS Plugin Packaging Workflow
+# Creates distributable ZIP for plugins.qgis.org
+
+name: Package QGIS Plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'qgis-plugin/**'
+      - '.github/workflows/package-plugin.yml'
+  pull_request:
+    paths:
+      - 'qgis-plugin/**'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  package-plugin:
+    name: Package QGIS Plugin
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Get version from metadata
+        id: version
+        run: |
+          VERSION=$(grep -E "^version=" qgis-plugin/h2gis_driver_installer/metadata.txt | cut -d= -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Plugin version: $VERSION"
+
+      - name: Validate plugin structure
+        run: |
+          echo "Checking required files..."
+          test -f qgis-plugin/h2gis_driver_installer/__init__.py || exit 1
+          test -f qgis-plugin/h2gis_driver_installer/metadata.txt || exit 1
+          echo "✓ Required files present"
+          
+          echo "Checking Python syntax..."
+          python -m py_compile qgis-plugin/h2gis_driver_installer/*.py
+          echo "✓ Python syntax OK"
+
+      - name: Create plugin ZIP
+        run: |
+          cd qgis-plugin
+          
+          # Create ZIP with proper structure for QGIS
+          # The ZIP must contain a folder with the plugin name
+          zip -r ../h2gis_driver_installer.zip h2gis_driver_installer \
+            -x "*.pyc" \
+            -x "*__pycache__*" \
+            -x "*.git*"
+          
+          cd ..
+          
+          # Show contents
+          echo "ZIP contents:"
+          unzip -l h2gis_driver_installer.zip
+          
+          # Get size
+          SIZE=$(stat -c%s h2gis_driver_installer.zip)
+          echo "ZIP size: $SIZE bytes"
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2gis-driver-installer-qgis-plugin-v${{ steps.version.outputs.version }}
+          path: h2gis_driver_installer.zip
+          retention-days: 90
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: h2gis_driver_installer.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Test plugin can be loaded (basic import test)
+  test-plugin:
+    name: Test Plugin Import
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.10', '3.11', '3.12']
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install GDAL Python bindings
+        run: |
+          pip install gdal || pip install pygdal || echo "GDAL not available, testing without"
+
+      - name: Test plugin imports
+        shell: python
+        run: |
+          import sys
+          import os
+          
+          # Add plugin to path
+          sys.path.insert(0, 'qgis-plugin')
+          
+          # Mock QGIS modules
+          class MockQgis:
+              Info = 0
+              Warning = 1
+              Critical = 2
+              Success = 3
+          
+          class MockQgsMessageLog:
+              @staticmethod
+              def logMessage(msg, cat, level):
+                  pass
+          
+          class MockQgsApplication:
+              @staticmethod
+              def qgisSettingsDirPath():
+                  return os.path.expanduser("~/.qgis_test")
+              @staticmethod
+              def instance():
+                  return None
+          
+          class MockQgsSettings:
+              def __init__(self):
+                  self._data = {}
+              def value(self, key, default=None):
+                  return self._data.get(key, default)
+              def setValue(self, key, val):
+                  self._data[key] = val
+              def remove(self, key):
+                  self._data.pop(key, None)
+          
+          # Inject mocks
+          import types
+          sys.modules['qgis'] = types.ModuleType('qgis')
+          sys.modules['qgis.core'] = types.ModuleType('qgis.core')
+          sys.modules['qgis.core'].Qgis = MockQgis
+          sys.modules['qgis.core'].QgsMessageLog = MockQgsMessageLog
+          sys.modules['qgis.core'].QgsApplication = MockQgsApplication
+          sys.modules['qgis.core'].QgsSettings = MockQgsSettings
+          sys.modules['qgis.core'].QgsVectorLayer = None
+          sys.modules['qgis.core'].QgsProject = None
+          sys.modules['qgis.core'].QgsCoordinateReferenceSystem = None
+          
+          # Test imports
+          print("Testing plugin imports on", sys.platform)
+          
+          from h2gis_driver_installer import classFactory
+          print("✓ __init__.py")
+          
+          from h2gis_driver_installer.platform_detector import get_platform_info
+          info = get_platform_info()
+          print(f"✓ platform_detector.py - {info['os']}/{info['arch']}")
+          
+          from h2gis_driver_installer.downloader import H2GIS_ARTIFACT_URL
+          print("✓ downloader.py")
+          
+          from h2gis_driver_installer.installer import H2GISInstaller
+          print("✓ installer.py")
+          
+          from h2gis_driver_installer.demo_database import DemoDatabase
+          print("✓ demo_database.py")
+          
+          print("\nAll imports successful!")

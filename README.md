@@ -90,6 +90,30 @@ print(gdal.__version__)
 
 ## Installation
 
+### 🚀 Easy Install: QGIS Plugin (Recommended)
+
+The easiest way to install H2GIS support in QGIS is using our **installer plugin**:
+
+1. Download `h2gis_driver_installer.zip` from [GitHub Releases](https://github.com/pierromond/H2GIS_gdalplugin/releases) or [GitHub Actions](https://github.com/pierromond/H2GIS_gdalplugin/actions/workflows/package-plugin.yml)
+2. In QGIS: **Extensions → Manage and Install Plugins → Install from ZIP**
+3. Select the downloaded ZIP file and click **Install**
+4. Go to **Database → H2GIS Driver → Install H2GIS Driver...**
+5. Click **Install Driver** - the plugin will automatically:
+   - Detect your OS and GDAL version
+   - Download the matching pre-compiled driver
+   - Download the H2GIS native library
+   - Configure everything for you
+6. **Restart QGIS** to activate the driver
+7. You can now open `.mv.db` files directly!
+
+> 💡 **Bonus**: Click "Create Demo Database" to generate a sample H2GIS database with French cities!
+
+---
+
+### Manual Installation
+
+If you prefer manual installation or need more control:
+
 The installation process involves two steps:
 1. Installing the compiled **GDAL Plugin** (`gdal_H2GIS.so/dll/dylib`).
 2. Installing the **H2GIS Native Library** (`libh2gis.so`, `h2gis.dll`, or `libh2gis.dylib`).
