@@ -469,14 +469,20 @@ jobs:
 
       - name: Configure CMake
         run: |
-          # Find GDAL paths from conda
-          GDAL_INCLUDE=$(python -c "import os; from osgeo import gdal; print(os.path.join(os.path.dirname(os.path.dirname(gdal.__file__)), 'Library', 'include'))")
-          GDAL_LIB=$(python -c "import os; from osgeo import gdal; print(os.path.join(os.path.dirname(os.path.dirname(gdal.__file__)), 'Library', 'lib'))")
+          # Use CONDA_PREFIX for GDAL paths on Windows
+          echo "CONDA_PREFIX: $CONDA_PREFIX"
+          ls -la "$CONDA_PREFIX/Library/include" | head -5 || true
+          ls -la "$CONDA_PREFIX/Library/lib" | grep -i gdal || true
+          
+          GDAL_INCLUDE="$CONDA_PREFIX/Library/include"
+          GDAL_LIB="$CONDA_PREFIX/Library/lib/gdal.lib"
+          
           echo "GDAL_INCLUDE: $GDAL_INCLUDE"
           echo "GDAL_LIB: $GDAL_LIB"
+          
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DGDAL_INCLUDE_DIR="$GDAL_INCLUDE" \
-            -DGDAL_LIBRARY="$GDAL_LIB/gdal.lib"
+            -DGDAL_LIBRARY="$GDAL_LIB"
 
       - name: Build
         run: cmake --build build --config Release
