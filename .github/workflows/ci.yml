@@ -257,7 +257,7 @@ jobs:
 
   build-macos-intel:
     name: Build (macOS Intel x86_64 + GDAL)
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -270,9 +270,9 @@ jobs:
             ~/Library/Caches/Homebrew
             /usr/local/Cellar
             /usr/local/opt
-          key: macos-intel-brew-gdal-${{ runner.os }}-${{ runner.arch }}-v1
+          key: macos-intel-15-brew-gdal-${{ runner.os }}-${{ runner.arch }}-v1
           restore-keys: |
-            macos-intel-brew-gdal-
+            macos-intel-15-brew-gdal-
 
       - name: Install dependencies
         run: |
