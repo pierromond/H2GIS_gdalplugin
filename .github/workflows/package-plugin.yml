@@ -166,19 +166,19 @@ jobs:
           print("Testing plugin imports on", sys.platform)
           
           from h2gis_driver_installer import classFactory
-          print("✓ __init__.py")
+          print("[OK] __init__.py")
           
           from h2gis_driver_installer.platform_detector import get_platform_info
           info = get_platform_info()
-          print(f"✓ platform_detector.py - {info['os']}/{info['arch']}")
+          print(f"[OK] platform_detector.py - {info['os']}/{info['arch']}")
           
           from h2gis_driver_installer.downloader import H2GIS_ARTIFACT_URL
-          print("✓ downloader.py")
+          print("[OK] downloader.py")
           
           from h2gis_driver_installer.installer import H2GISInstaller
-          print("✓ installer.py")
+          print("[OK] installer.py")
           
           from h2gis_driver_installer.demo_database import DemoDatabase
-          print("✓ demo_database.py")
+          print("[OK] demo_database.py")
           
           print("\nAll imports successful!")
