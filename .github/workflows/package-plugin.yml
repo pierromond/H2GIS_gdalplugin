@@ -6,12 +6,6 @@ name: Package QGIS Plugin
 on:
   push:
     branches: [main]
-    paths:
-      - 'qgis-plugin/**'
-      - '.github/workflows/package-plugin.yml'
-  pull_request:
-    paths:
-      - 'qgis-plugin/**'
   release:
     types: [published]
   workflow_dispatch:
