@@ -39,41 +39,94 @@ jobs:
 
       - name: Validate plugin structure
         run: |
-          echo "Checking required files..."
-          test -f qgis-plugin/h2gis_driver_installer/__init__.py || exit 1
-          test -f qgis-plugin/h2gis_driver_installer/metadata.txt || exit 1
-          echo "✓ Required files present"
+          cd qgis-plugin/h2gis_driver_installer
           
-          echo "Checking Python syntax..."
-          python -m py_compile qgis-plugin/h2gis_driver_installer/*.py
-          echo "✓ Python syntax OK"
+          echo "=== Checking required files ==="
+          test -f __init__.py || { echo "ERROR: __init__.py missing"; exit 1; }
+          test -f metadata.txt || { echo "ERROR: metadata.txt missing"; exit 1; }
+          echo "[OK] Required files present"
+          
+          echo ""
+          echo "=== Validating metadata.txt ==="
+          # Check required QGIS plugin metadata fields
+          REQUIRED_FIELDS="name version qgisMinimumVersion description author email"
+          for field in $REQUIRED_FIELDS; do
+            if grep -q "^${field}=" metadata.txt; then
+              VALUE=$(grep "^${field}=" metadata.txt | cut -d= -f2-)
+              echo "[OK] $field = $VALUE"
+            else
+              echo "ERROR: Missing required field: $field"
+              exit 1
+            fi
+          done
+          
+          echo ""
+          echo "=== Checking Python syntax ==="
+          python -m py_compile *.py
+          echo "[OK] Python syntax valid"
+          
+          echo ""
+          echo "=== Checking __init__.py exports classFactory ==="
+          if grep -q "def classFactory" __init__.py; then
+            echo "[OK] classFactory function found"
+          else
+            echo "ERROR: classFactory function not found in __init__.py"
+            exit 1
+          fi
+          
+          cd ../..
 
       - name: Create plugin ZIP
         run: |
           cd qgis-plugin
           
           # Create ZIP with proper structure for QGIS
-          # The ZIP must contain a folder with the plugin name
+          # The ZIP must contain a folder with the plugin name at root level
+          # Exclude macOS metadata files and Python cache
           zip -r ../h2gis_driver_installer.zip h2gis_driver_installer \
             -x "*.pyc" \
             -x "*__pycache__*" \
-            -x "*.git*"
+            -x "*.git*" \
+            -x "*__MACOSX*" \
+            -x "*.DS_Store"
           
           cd ..
           
           # Show contents
-          echo "ZIP contents:"
+          echo "=== ZIP contents ==="
           unzip -l h2gis_driver_installer.zip
+          
+          # Verify root folder exists
+          echo ""
+          echo "=== Verifying structure ==="
+          ROOT_FOLDER=$(unzip -l h2gis_driver_installer.zip | grep -E "^\s+0\s+" | head -1 | awk '{print $NF}')
+          echo "Root folder: $ROOT_FOLDER"
+          if [[ "$ROOT_FOLDER" == "h2gis_driver_installer/" ]]; then
+            echo "Structure OK - plugin folder at root"
+          else
+            echo "ERROR: Expected h2gis_driver_installer/ at root"
+            exit 1
+          fi
           
           # Get size
           SIZE=$(stat -c%s h2gis_driver_installer.zip)
           echo "ZIP size: $SIZE bytes"
 
-      - name: Upload plugin artifact
+      # Upload the pre-made ZIP (will be double-zipped by GitHub)
+      - name: Upload plugin ZIP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: h2gis-driver-installer-qgis-plugin-v${{ steps.version.outputs.version }}
+          name: h2gis-driver-installer-plugin-v${{ steps.version.outputs.version }}-zip
           path: h2gis_driver_installer.zip
+          retention-days: 90
+          
+      # Upload folder directly - GitHub will create a ZIP with proper structure
+      # When downloaded, this will be a ZIP with h2gis_driver_installer/ at root
+      - name: Upload plugin folder (recommended for QGIS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2gis_driver_installer
+          path: qgis-plugin/h2gis_driver_installer/
           retention-days: 90
 
       - name: Upload to release
