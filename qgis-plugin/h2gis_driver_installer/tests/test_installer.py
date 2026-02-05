@@ -69,70 +69,69 @@ def setup_mocks():
 setup_mocks()
 
 # Now we can import our modules
-from h2gis_driver_installer.installer import (
-    get_install_paths,
-    is_driver_installed
-)
+from h2gis_driver_installer.installer import H2GISInstaller
 
 
-class TestGetInstallPaths(unittest.TestCase):
-    """Tests for get_install_paths function."""
+class TestH2GISInstaller(unittest.TestCase):
+    """Tests for H2GISInstaller class."""
     
-    def test_returns_dict(self):
-        """Test that get_install_paths returns a dictionary."""
-        paths = get_install_paths()
-        self.assertIsInstance(paths, dict)
+    def test_can_instantiate(self):
+        """Test that H2GISInstaller can be instantiated."""
+        installer = H2GISInstaller()
+        self.assertIsNotNone(installer)
     
-    def test_has_required_keys(self):
-        """Test that returned dict has required keys."""
-        paths = get_install_paths()
-        self.assertIn('gdal_driver_dir', paths)
-        self.assertIn('h2gis_lib_dir', paths)
-        self.assertIn('driver_file', paths)
+    def test_get_status_returns_dict(self):
+        """Test that get_status returns a dictionary."""
+        installer = H2GISInstaller()
+        status = installer.get_status()
+        self.assertIsInstance(status, dict)
     
-    def test_paths_are_path_objects(self):
-        """Test that paths are Path objects."""
-        paths = get_install_paths()
-        self.assertIsInstance(paths['gdal_driver_dir'], Path)
-        self.assertIsInstance(paths['h2gis_lib_dir'], Path)
-        self.assertIsInstance(paths['driver_file'], Path)
-
-
-class TestIsDriverInstalled(unittest.TestCase):
-    """Tests for is_driver_installed function."""
+    def test_status_has_required_keys(self):
+        """Test that status dict has required keys."""
+        installer = H2GISInstaller()
+        status = installer.get_status()
+        required_keys = ['installed', 'driver_available', 'platform', 
+                         'artifact_name', 'supported']
+        for key in required_keys:
+            self.assertIn(key, status)
     
-    def test_returns_boolean(self):
-        """Test that is_driver_installed returns a boolean."""
-        result = is_driver_installed()
-        self.assertIsInstance(result, bool)
+    def test_platform_info_in_status(self):
+        """Test that platform info is included in status."""
+        installer = H2GISInstaller()
+        status = installer.get_status()
+        self.assertIn('platform', status)
+        self.assertIsInstance(status['platform'], dict)
+        self.assertIn('os', status['platform'])
+        self.assertIn('arch', status['platform'])
     
     def test_not_installed_by_default(self):
         """Test that driver is not installed in test environment."""
-        # In a test environment, the driver should not be installed
-        # unless we're running on a system where it's actually installed
-        result = is_driver_installed()
-        # We just check it runs without error
-        self.assertIn(result, [True, False])
+        installer = H2GISInstaller()
+        status = installer.get_status()
+        # In test environment, driver should not be installed
+        self.assertFalse(status['installed'])
 
 
-class TestInstallPathsConsistency(unittest.TestCase):
-    """Tests for install paths consistency."""
+class TestH2GISInstallerMethods(unittest.TestCase):
+    """Tests for H2GISInstaller methods."""
     
-    def test_driver_file_in_driver_dir(self):
-        """Test that driver file is within driver directory."""
-        paths = get_install_paths()
-        driver_file = paths['driver_file']
-        driver_dir = paths['gdal_driver_dir']
-        # Driver file should be in the driver directory
-        self.assertEqual(driver_file.parent, driver_dir)
+    def test_has_install_method(self):
+        """Test that installer has install method."""
+        installer = H2GISInstaller()
+        self.assertTrue(hasattr(installer, 'install'))
+        self.assertTrue(callable(installer.install))
     
-    def test_h2gis_lib_dir_exists_or_creatable(self):
-        """Test that h2gis lib directory path is valid."""
-        paths = get_install_paths()
-        h2gis_dir = paths['h2gis_lib_dir']
-        # Check that the parent of h2gis_lib_dir is a valid path
-        self.assertTrue(h2gis_dir.parent.exists() or 
-                        h2gis_dir.parent.parent.exists())
+    def test_has_uninstall_method(self):
+        """Test that installer has uninstall method."""
+        installer = H2GISInstaller()
+        self.assertTrue(hasattr(installer, 'uninstall'))
+        self.assertTrue(callable(installer.uninstall))
+    
+    def test_has_verify_method(self):
+        """Test that installer has verify method."""
+        installer = H2GISInstaller()
+        self.assertTrue(hasattr(installer, 'verify'))
+        self.assertTrue(callable(installer.verify))
 
 
 if __name__ == '__main__':
