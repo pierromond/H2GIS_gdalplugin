@@ -126,6 +126,27 @@ class H2GISInstaller:
             driver_name = f"gdal_H2GIS{self.platform_info['driver_extension']}"
             final_driver_path = driver_dest / driver_name
             
+            # Check if driver file is locked (Windows issue)
+            if final_driver_path.exists():
+                try:
+                    # Try to rename/delete to check if file is locked
+                    test_path = final_driver_path.with_suffix('.old')
+                    if test_path.exists():
+                        test_path.unlink()
+                    final_driver_path.rename(test_path)
+                    test_path.unlink()
+                except PermissionError:
+                    return (False, 
+                        f"Cannot update driver - file is locked:\n"
+                        f"{final_driver_path}\n\n"
+                        f"The file is probably in use by another QGIS process.\n\n"
+                        f"Please:\n"
+                        f"1. Close ALL QGIS windows\n"
+                        f"2. Wait a few seconds\n"
+                        f"3. Restart QGIS\n"
+                        f"4. Try installing again"
+                    )
+            
             if driver_path and Path(driver_path).exists():
                 # Copy provided driver
                 report(f"Copying driver from {driver_path}...", 60)

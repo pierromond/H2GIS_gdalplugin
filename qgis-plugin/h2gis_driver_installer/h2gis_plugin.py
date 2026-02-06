@@ -170,6 +170,31 @@ class H2GISDriverInstallerPlugin:
                     self.tr("Driver loaded but not registered. Check the logs for details.")
                 )
                 
+        except OSError as e:
+            error_msg = str(e)
+            if "not found" in error_msg.lower() or "GDALRegister_H2GIS" in error_msg:
+                QMessageBox.critical(
+                    self.iface.mainWindow(),
+                    self.tr("H2GIS Driver"),
+                    self.tr(
+                        f"Failed to load driver:\n\n{e}\n\n"
+                        f"This usually means the driver file is corrupted or "
+                        f"wasn't downloaded correctly.\n\n"
+                        f"Try reinstalling via:\n"
+                        f"Database > H2GIS Driver > Install H2GIS Driver..."
+                    )
+                )
+            else:
+                QMessageBox.critical(
+                    self.iface.mainWindow(),
+                    self.tr("H2GIS Driver"),
+                    self.tr(f"Failed to load driver:\n\n{e}")
+                )
+            QgsMessageLog.logMessage(
+                f"Failed to reload H2GIS driver: {e}",
+                "H2GIS",
+                Qgis.Critical
+            )
         except Exception as e:
             QMessageBox.critical(
                 self.iface.mainWindow(),

@@ -269,7 +269,13 @@ void RegisterOGRH2GIS()
 /*         Entry point called by GDAL's plugin autoloader               */
 /************************************************************************/
 
-extern "C" void GDALRegister_H2GIS()
+#ifdef _WIN32
+#define H2GIS_EXPORT __declspec(dllexport)
+#else
+#define H2GIS_EXPORT
+#endif
+
+extern "C" H2GIS_EXPORT void GDALRegister_H2GIS()
 {
     RegisterOGRH2GIS();
 }
