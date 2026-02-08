@@ -1,24 +1,24 @@
-# 🛠️ Guide du Développeur - GDAL H2GIS Driver
+# 🛠️ Developer Guide - GDAL H2GIS Driver
 
 ---
 
-## 📖 Table des matières
+## 📖 Table of Contents
 
-1. [Architecture du Driver](#architecture-du-driver)
-2. [Structure des fichiers](#structure-des-fichiers)
-3. [Flux de données](#flux-de-données)
-4. [GraalVM et le Worker Thread](#graalvm-et-le-worker-thread)
-5. [API C H2GIS](#api-c-h2gis)
-6. [Gestion des SRID](#gestion-des-srid)
-7. [Authentification](#authentification)
+1. [Driver Architecture](#driver-architecture)
+2. [File Structure](#file-structure)
+3. [Data Flow](#data-flow)
+4. [GraalVM and the Worker Thread](#graalvm-and-the-worker-thread)
+5. [H2GIS C API](#h2gis-c-api)
+6. [SRID Handling](#srid-handling)
+7. [Authentication](#authentication)
 8. [Debugging](#debugging)
-9. [Contribuer](#contribuer)
+9. [Contributing](#contributing)
 
 ---
 
-## 🏗️ Architecture du Driver
+## 🏗️ Driver Architecture
 
-Le driver GDAL H2GIS est structuré en 3 couches principales :
+The GDAL H2GIS driver is structured in 3 main layers:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -51,133 +51,133 @@ Le driver GDAL H2GIS est structuré en 3 couches principales :
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Les 3 classes OGR
+### The 3 OGR Classes
 
-| Classe | Responsabilité | Fichier |
-|--------|----------------|---------|
-| `OGRH2GISDriver` | Identification des fichiers `.mv.db`, création du DataSource | `ogrh2gisdriver.cpp` |
-| `OGRH2GISDataSource` | Connexion à la base, énumération des layers | `ogrh2gisdatasource.cpp` |
-| `OGRH2GISLayer` | Lecture/écriture des features, filtrage spatial | `ogrh2gislayer.cpp` |
+| Class | Responsibility | File |
+|-------|----------------|------|
+| `OGRH2GISDriver` | `.mv.db` file identification, DataSource creation | `ogrh2gisdriver.cpp` |
+| `OGRH2GISDataSource` | Database connection, layer enumeration | `ogrh2gisdatasource.cpp` |
+| `OGRH2GISLayer` | Feature reading/writing, spatial filtering | `ogrh2gislayer.cpp` |
 
 ---
 
-## 📁 Structure des fichiers
+## 📁 File Structure
 
 ```
 gdal-h2gis-driver/
-├── CMakeLists.txt           # Configuration CMake
-├── README.md                # Documentation utilisateur
-├── install.sh               # Script d'installation
-├── uninstall.sh             # Script de désinstallation
+├── CMakeLists.txt           # CMake configuration
+├── README.md                # User documentation
+├── install.sh               # Installation script
+├── uninstall.sh             # Uninstallation script
 │
-├── ogr_h2gis.h              # Header principal (classes OGR + helpers)
-├── ogrh2gisdriver.cpp       # Point d'entrée GDAL (Identify/Open)
-├── ogrh2gisdatasource.cpp   # Gestion connexion + énumération layers
-├── ogrh2gislayer.cpp        # Lecture features + spatial filter
+├── ogr_h2gis.h              # Main header (OGR classes + helpers)
+├── ogrh2gisdriver.cpp       # GDAL entry point (Identify/Open)
+├── ogrh2gisdatasource.cpp   # Connection management + layer enumeration
+├── ogrh2gislayer.cpp        # Feature reading + spatial filter
 │
-├── h2gis_wrapper.h          # Header wrapper (déclarations)
-├── h2gis_wrapper.cpp        # Wrapper thread-safe pour GraalVM
+├── h2gis_wrapper.h          # Wrapper header (declarations)
+├── h2gis_wrapper.cpp        # Thread-safe wrapper for GraalVM
 │
-├── h2gis.h                  # API C générée par GraalVM
-├── graal_isolate.h          # Types GraalVM (isolate, thread)
-├── libh2gis.so              # Bibliothèque native H2GIS
+├── h2gis.h                  # GraalVM-generated C API
+├── graal_isolate.h          # GraalVM types (isolate, thread)
+├── libh2gis.so              # H2GIS native library
 │
 ├── docs/
-│   ├── DEVELOPER.md         # Ce fichier !
-│   └── ARCHITECTURE.png     # Diagramme d'architecture
+│   ├── DEVELOPER.md         # This file!
+│   └── ARCHITECTURE.png     # Architecture diagram
 │
 └── tests/
-    └── test_driver.py       # Tests automatisés Python
+    └── ogr_h2gis.py         # Automated Python tests
 ```
 
-### Description des fichiers sources
+### Source File Descriptions
 
-| Fichier | Lignes | Description |
+| File | Lines | Description |
 |---------|--------|-------------|
-| `ogr_h2gis.h` | ~200 | Classes OGR, `H2GISColumnInfo`, `MapH2GeometryType()`, `MapH2DataType()` |
-| `ogrh2gisdriver.cpp` | ~190 | `Identify()`, `Open()`, `RegisterOGRH2GIS()` |
-| `ogrh2gisdatasource.cpp` | ~550 | Connexion, parsing INFORMATION_SCHEMA, création layers |
-| `ogrh2gislayer.cpp` | ~990 | Features, batch fetching, WKB parsing, spatial filter |
-| `h2gis_wrapper.cpp` | ~590 | Worker thread 64MB, job queue, fonctions wrapper |
+| `ogr_h2gis.h` | ~430 | OGR classes, `H2GISColumnInfo`, `MapH2GeometryType()`, `MapH2DataType()` |
+| `ogrh2gisdriver.cpp` | ~240 | `Identify()`, `Open()`, `RegisterOGRH2GIS()` |
+| `ogrh2gisdatasource.cpp` | ~1420 | Connection, INFORMATION_SCHEMA parsing, layer creation |
+| `ogrh2gislayer.cpp` | ~1900 | Features, batch fetching, WKB parsing, spatial filter |
+| `h2gis_wrapper.cpp` | ~940 | 64MB worker thread, job queue, wrapper functions |
 
 ---
 
-## 🔄 Flux de données
+## 🔄 Data Flow
 
-### Ouverture d'un fichier
+### Opening a File
 
 ```
 1. QGIS drag & drop "database.mv.db"
        │
        ▼
-2. GDAL appelle OGRH2GISDriverIdentify()
-   → Vérifie extension .mv.db
+2. GDAL calls OGRH2GISDriverIdentify()
+   → Checks .mv.db extension
        │
        ▼
-3. GDAL appelle OGRH2GISDriverOpen()
-   → Crée OGRH2GISDataSource
+3. GDAL calls OGRH2GISDriverOpen()
+   → Creates OGRH2GISDataSource
        │
        ▼
 4. OGRH2GISDataSource::Open()
-   → h2gis_wrapper_init() (crée worker thread si nécessaire)
+   → h2gis_wrapper_init() (creates worker thread if needed)
    → h2gis_connect() via worker thread
    → Parse credentials (URI, env vars, defaults)
-   → Requête INFORMATION_SCHEMA.COLUMNS (unique query!)
-   → Crée OGRH2GISLayer pour chaque table/geometry
+   → Query INFORMATION_SCHEMA.COLUMNS (single query!)
+   → Create OGRH2GISLayer for each table/geometry
        │
        ▼
-5. QGIS affiche les layers dans le panneau
+5. QGIS displays the layers in the panel
 ```
 
-### Lecture des features
+### Reading Features
 
 ```
-1. QGIS demande l'extent ou les features
+1. QGIS requests the extent or features
        │
        ▼
 2. OGRH2GISLayer::SetSpatialFilter()
-   → Stocke le rectangle de filtrage
+   → Stores the filter rectangle
        │
        ▼
 3. OGRH2GISLayer::GetNextFeature()
-   → PrepareQuery() avec ST_Intersects() si filtre spatial
+   → PrepareQuery() with ST_Intersects() if spatial filter
    → SELECT _ROWID_, * FROM table WHERE ST_Intersects(...)
        │
        ▼
 4. h2gis_fetch_batch() via worker thread
-   → Retourne buffer binaire columnar (1000 rows)
+   → Returns columnar binary buffer (1000 rows)
        │
        ▼
 5. ParseFeatureFromBatch()
-   → Extrait géométrie (WKB) via OGRGeometryFactory::createFromWkb()
-   → Extrait attributs selon leur type
-   → Retourne OGRFeature
+   → Extracts geometry (WKB) via OGRGeometryFactory::createFromWkb()
+   → Extracts attributes by type
+   → Returns OGRFeature
 ```
 
 ---
 
-## ⚠️ Limitations actuelles
+## ⚠️ Current Limitations
 
-- Les champs DATE/TIME/DATETIME/BINARY ne sont pas encore décodés côté lecture (écriture OK).
-- `ExecuteSQL()` renvoie des géométries en **WKB brut** (pas de conversion EWKB→WKB).
+- DATE/TIME/DATETIME/BINARY fields are not yet decoded on the read side (writing works).
+- `ExecuteSQL()` returns geometries as **raw WKB** (no EWKB→WKB conversion).
 
 ---
 
-## 🧵 GraalVM et le Worker Thread
+## 🧵 GraalVM and the Worker Thread
 
-### Le problème du Stack Overflow
+### The Stack Overflow Problem
 
-**Le problème :**
-- GraalVM Native Image nécessite **~64 MB de stack** pour certaines opérations SQL complexes
-- Les threads QGIS ont seulement **8 MB** de stack par défaut
-- Résultat : **StackOverflowError** lors de requêtes avec JOINs ou fonctions spatiales complexes
+**The problem:**
+- GraalVM Native Image requires **~64 MB of stack** for certain complex SQL operations
+- QGIS threads only have **8 MB** of stack by default
+- Result: **StackOverflowError** on queries with JOINs or complex spatial functions
 
-**La solution :**
-- Un **Worker Thread dédié** avec 64 MB de stack créé au démarrage
-- Toutes les opérations H2GIS sont routées vers ce thread via une **job queue**
-- Le caller attend le résultat via **condition_variable**
+**The solution:**
+- A **dedicated Worker Thread** with 64 MB stack created at startup
+- All H2GIS operations are routed to this thread via a **job queue**
+- The caller waits for the result via **condition_variable**
 
-### Architecture du Worker Thread
+### Worker Thread Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -210,16 +210,16 @@ gdal-h2gis-driver/
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Code clé
+### Key Code
 
 ```cpp
-// Création du worker thread avec 64 MB de stack
+// Create the worker thread with 64 MB stack
 pthread_attr_t attr;
 pthread_attr_init(&attr);
 pthread_attr_setstacksize(&attr, 64 * 1024 * 1024);  // 64 MB!
 pthread_create(&g_worker_pthread, &attr, worker_thread_func, nullptr);
 
-// Template pour exécuter une fonction sur le worker
+// Template to execute a function on the worker
 template<typename Func>
 auto execute_on_worker(Func func) -> decltype(func()) {
     std::promise<decltype(func())> promise;
@@ -233,11 +233,11 @@ auto execute_on_worker(Func func) -> decltype(func()) {
     }
     g_queue_cv.notify_one();
     
-    return future.get();  // Bloque jusqu'au résultat
+    return future.get();  // Blocks until result is available
 }
 ```
 
-### Lifecycle du Worker Thread
+### Worker Thread Lifecycle
 
 ```
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
@@ -268,23 +268,23 @@ auto execute_on_worker(Func func) -> decltype(func()) {
 
 ---
 
-## 📡 API C H2GIS
+## 📡 H2GIS C API
 
-### Fonctions principales
+### Main Functions
 
-| Fonction | Description | Thread-safe |
+| Function | Description | Thread-safe |
 |----------|-------------|-------------|
-| `h2gis_connect(thread, path, user, pass)` | Connexion à la base | Via wrapper |
-| `h2gis_load(thread, conn)` | Initialise les fonctions H2GIS | Via wrapper |
-| `h2gis_prepare(thread, conn, sql)` | Prépare une requête | Via wrapper |
-| `h2gis_execute_prepared(thread, stmt)` | Exécute la requête | Via wrapper |
-| `h2gis_fetch_batch(thread, rs, size, &len)` | Récupère N lignes | Via wrapper |
-| `h2gis_fetch_one(thread, rs, &len)` | Récupère 1 ligne | Via wrapper |
-| `h2gis_close_query(thread, handle)` | Ferme un statement/resultset | Via wrapper |
-| `h2gis_close_connection(thread, conn)` | Ferme la connexion | Via wrapper |
-| `h2gis_free_result_buffer(thread, buf)` | Libère un buffer | Via wrapper |
+| `h2gis_connect(thread, path, user, pass)` | Connect to database | Via wrapper |
+| `h2gis_load(thread, conn)` | Initialize H2GIS functions | Via wrapper |
+| `h2gis_prepare(thread, conn, sql)` | Prepare a query | Via wrapper |
+| `h2gis_execute_prepared(thread, stmt)` | Execute a query | Via wrapper |
+| `h2gis_fetch_batch(thread, rs, size, &len)` | Fetch N rows | Via wrapper |
+| `h2gis_fetch_one(thread, rs, &len)` | Fetch 1 row | Via wrapper |
+| `h2gis_close_query(thread, handle)` | Close a statement/resultset | Via wrapper |
+| `h2gis_close_connection(thread, conn)` | Close the connection | Via wrapper |
+| `h2gis_free_result_buffer(thread, buf)` | Free a buffer | Via wrapper |
 
-### Format du buffer binaire (columnar)
+### Binary Buffer Format (Columnar)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -307,10 +307,10 @@ auto execute_on_worker(Func func) -> decltype(func()) {
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Types de données H2GIS
+### H2GIS Data Types
 
 ```cpp
-#define H2GIS_TYPE_NULL    0   // Pas de données
+#define H2GIS_TYPE_NULL    0   // No data
 #define H2GIS_TYPE_INT     1   // 4 bytes, little-endian
 #define H2GIS_TYPE_LONG    2   // 8 bytes, little-endian
 #define H2GIS_TYPE_FLOAT   3   // 4 bytes, IEEE 754
@@ -324,11 +324,11 @@ auto execute_on_worker(Func func) -> decltype(func()) {
 
 ---
 
-## 🌍 Gestion des SRID
+## 🌍 SRID Handling
 
-### Récupération du SRID
+### SRID Retrieval
 
-Le SRID est récupéré depuis `INFORMATION_SCHEMA.COLUMNS.GEOMETRY_SRID` :
+The SRID is retrieved from `INFORMATION_SCHEMA.COLUMNS.GEOMETRY_SRID`:
 
 ```sql
 SELECT 
@@ -341,9 +341,9 @@ FROM INFORMATION_SCHEMA.COLUMNS c
 WHERE c.TABLE_SCHEMA = 'PUBLIC'
 ```
 
-### ⚠️ Piège critique : INT vs BIGINT
+### ⚠️ Critical Pitfall: INT vs BIGINT
 
-H2 peut retourner le SRID comme BIGINT. Le parser doit gérer les deux :
+H2 may return the SRID as BIGINT. The parser must handle both:
 
 ```cpp
 static int ParseColumnAsInt(uint8_t* colPtr, int64_t colOffset) {
@@ -354,22 +354,22 @@ static int ParseColumnAsInt(uint8_t* colPtr, int64_t colOffset) {
         std::memcpy(&val, ptr, 4);
         return val;
     }
-    // IMPORTANT: Gérer aussi BIGINT!
+    // IMPORTANT: Also handle BIGINT!
     if (type == H2GIS_TYPE_LONG && dLen >= 8) {
         int64_t val;
         std::memcpy(&val, ptr, 8);
-        return (int)val;  // Safe - les SRID sont petits
+        return (int)val;  // Safe - SRIDs are small integers
     }
     return 0;
 }
 ```
 
-### ⚠️ Piège critique : Clonage du SRS
+### ⚠️ Critical Pitfall: SRS Cloning
 
-Le SRS doit être assigné **APRÈS** `AddGeomFieldDefn()` car cette fonction **clone** le geometry field :
+The SRS must be assigned **AFTER** `AddGeomFieldDefn()` because this function **clones** the geometry field:
 
 ```cpp
-// ✅ CORRECT - Le SRS est assigné sur le champ cloné
+// ✅ CORRECT - SRS is assigned on the cloned field
 m_poFeatureDefn->AddGeomFieldDefn(&gfd);
 if (nSrid > 0) {
     OGRSpatialReference *poSRS = new OGRSpatialReference();
@@ -378,18 +378,18 @@ if (nSrid > 0) {
     poSRS->Release();
 }
 
-// ❌ FAUX - Le SRS original est cloné, puis l'original est libéré
-// Le clone pointe vers un SRS invalide!
+// ❌ WRONG - The original SRS is cloned, then the original is released
+// The clone points to an invalid SRS!
 gfd.SetSpatialRef(poSRS);
 poSRS->Release();
-m_poFeatureDefn->AddGeomFieldDefn(&gfd);  // Clone avec SRS invalide!
+m_poFeatureDefn->AddGeomFieldDefn(&gfd);  // Clones with invalid SRS!
 ```
 
 ---
 
-## 🔐 Authentification
+## 🔐 Authentication
 
-### 3 méthodes supportées (par ordre de priorité)
+### 3 Supported Methods (by Priority Order)
 
 1. **URI avec query string** :
    ```
@@ -407,16 +407,16 @@ m_poFeatureDefn->AddGeomFieldDefn(&gfd);  // Clone avec SRS invalide!
    export H2GIS_PASSWORD=secret
    ```
 
-### Ordre des tentatives de connexion
+### Connection Attempt Order
 
-Si aucun credential n'est fourni explicitement :
+If no credentials are explicitly provided:
 
-1. Credentials fournis (URI ou env vars)
-2. Vide (`""`, `""`) - le plus courant pour les bases locales
+1. Provided credentials (URI or env vars)
+2. Empty (`""`, `""`) - most common for local databases
 3. H2 default (`"sa"`, `""`)
 4. Legacy (`"sa"`, `"sa"`)
 
-### Code de parsing
+### Parsing Code
 
 ```cpp
 // Parse query string format: ?user=xxx&password=yyy
@@ -469,7 +469,7 @@ H2GIS_DEBUG=1 qgis
 | Layer vide | Mauvais nom de table | Vérifier la casse (H2 = case-sensitive) |
 | Crash au 2ème Open | Double init GraalVM | Vérifier `g_initialized` flag |
 
-### Test rapide avec Python
+### Quick Test with Python
 
 ```python
 from osgeo import ogr
@@ -487,78 +487,78 @@ else:
     print("Failed to open!")
 ```
 
-### Test avec ogrinfo
+### Test with ogrinfo
 
 ```bash
-# Lister les layers
+# List layers
 ogrinfo /path/to/database.mv.db
 
-# Détails d'un layer
+# Layer details
 ogrinfo -al -so /path/to/database.mv.db LAYER_NAME
 
-# Exporter vers GeoPackage (test complet)
+# Export to GeoPackage (full roundtrip test)
 ogr2ogr -f GPKG output.gpkg /path/to/database.mv.db
 ```
 
 ---
 
-## 🤝 Contribuer
+## 🤝 Contributing
 
-### Setup de développement
+### Development Setup
 
 ```bash
-# 1. Cloner le repo H2GIS
+# 1. Clone the H2GIS repo
 git clone https://github.com/orbisgis/h2gis.git
 cd h2gis
 
-# 2. Compiler libh2gis.so avec GraalVM
+# 2. Compile libh2gis.so with GraalVM
 mvn native:compile -Pnative -pl h2gis-graalvm
 
-# 3. Copier dans gdal-h2gis-driver
+# 3. Copy to gdal-h2gis-driver
 cp h2gis-graalvm/target/libh2gis.so ../gdal-h2gis-driver/
 
-# 4. Compiler le driver
+# 4. Compile the driver
 cd ../gdal-h2gis-driver
 mkdir -p build && cd build
 cmake ..
 make -j$(nproc)
 
-# 5. Installer
+# 5. Install
 sudo cp gdal_H2GIS.so /usr/lib/x86_64-linux-gnu/gdalplugins/
 sudo cp ../libh2gis.so /usr/local/lib/
 sudo ldconfig
 
-# 6. Tester
+# 6. Test
 ogrinfo --formats | grep H2GIS
 ```
 
-### Conventions de code
+### Code Conventions
 
-- **Nommage** : `CamelCase` pour les classes OGR, `snake_case` pour les fonctions C
-- **Commentaires** : En anglais, rester factuel et professionnel
-- **Logs** : Utiliser `LogDebugDS()`, `LogLayer()`, `debug_log()` selon le contexte
-- **Mémoire** : TOUJOURS appeler `Release()` sur les `OGRSpatialReference*`
-- **Threads** : JAMAIS appeler directement les fonctions `fp_h2gis_*`, toujours via wrapper
+- **Naming**: `CamelCase` for OGR classes, `snake_case` for C functions
+- **Comments**: In English, factual and professional
+- **Logging**: Use `LogDebugDS()`, `LogLayer()`, `debug_log()` as appropriate
+- **Memory**: ALWAYS call `Release()` on `OGRSpatialReference*`
+- **Threads**: NEVER call `fp_h2gis_*` functions directly, always via wrapper
 
-### Checklist avant commit
+### Pre-commit Checklist
 
-- [ ] `make clean && make` compile sans warnings
-- [ ] Tests Python passent : `pytest tests/`
-- [ ] Pas de memory leaks : `valgrind ogrinfo test.mv.db`
-- [ ] Logs nettoyés (pas de `printf` debug)
-- [ ] Documentation mise à jour si nouvelle feature
+- [ ] `make clean && make` compiles without warnings
+- [ ] Python tests pass: `pytest tests/`
+- [ ] No memory leaks: `valgrind ogrinfo test.mv.db`
+- [ ] Debug logs cleaned (no `printf` leftovers)
+- [ ] Documentation updated for new features
 
-### Structure d'un nouveau feature
+### New Feature Structure
 
-1. **Header** : Ajouter déclaration dans `ogr_h2gis.h`
-2. **Implementation** : Coder dans le fichier `.cpp` approprié
-3. **Wrapper** : Si appel GraalVM, ajouter dans `h2gis_wrapper.cpp`
-4. **Tests** : Ajouter test dans `tests/test_driver.py`
-5. **Docs** : Mettre à jour `README.md` et `DEVELOPER.md`
+1. **Header**: Add declaration in `ogr_h2gis.h`
+2. **Implementation**: Code in the appropriate `.cpp` file
+3. **Wrapper**: If GraalVM call, add in `h2gis_wrapper.cpp`
+4. **Tests**: Add test in `tests/ogr_h2gis.py`
+5. **Docs**: Update `README.md` and `DEVELOPER.md`
 
 ---
 
-## 📚 Références
+## 📚 References
 
 - [GDAL Vector Driver Tutorial](https://gdal.org/development/dev_vector_driver.html)
 - [OGR API Reference](https://gdal.org/api/vector_c_api.html)
@@ -570,19 +570,19 @@ ogrinfo --formats | grep H2GIS
 
 ## 🏆 Hall of Fame
 
-**Contributeurs :**
-- Équipe H2GIS
-- Contributeurs principaux
-- La communauté QGIS
+**Contributors:**
+- H2GIS Team
+- Core contributors
+- The QGIS community
 
 ---
 
-**Bonne contribution ! 🎉**
+**Happy contributing! 🎉**
 
 ## 📏 Coding Standards
 
-Referez-vous à [.github/copilot-instructions.md](../.github/copilot-instructions.md) pour les standards de développement GDAL à respecter.
+Refer to [.github/copilot-instructions.md](../.github/copilot-instructions.md) for GDAL development standards.
 
 ## 🧪 Tests
 
-Les tests sont situés dans `tests/`. Utilisez `pytest` pour les exécuter.
+Tests are located in `tests/`. Use `pytest` to run them.

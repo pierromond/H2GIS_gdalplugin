@@ -10,7 +10,7 @@
 
 #include "cpl_error.h"
 
-// Types and functions come from ogr_h2gis.h which includes h2gis.h and graal_isolate.h
+// Types and functions come from ogr_h2gis.h which includes h2gis_wrapper.h
 
 static void LogDebugDS(const char *msg)
 {
@@ -484,7 +484,7 @@ int OGRH2GISDataSource::Open(const char *pszFilename, int bUpdate,
     m_hThread = thread;
 
     char ptrStr[64];
-    sprintf(ptrStr, "IsolateThread Ptr: %p", thread);
+    snprintf(ptrStr, sizeof(ptrStr), "IsolateThread Ptr: %p", (void *)thread);
     LogDebugDS(ptrStr);
 
     // Parse URI for credentials: H2GIS:/path/db.mv.db?user=xxx&password=yyy
@@ -1174,15 +1174,18 @@ OGRH2GISDataSource::ICreateLayer(const char *pszName,
     // Ideally we should just add the new layer to our list instead of re-opening
     // But for now, returning the layer requires creating it.
 
-    // Create the layer object
-    // We need to fetch column info? No, it's empty.
-    std::vector<H2GISColumnInfo> cols;  // Empty
+    // Create the layer object with schema already known (we just created the table)
+    // Pass bSchemaFetched=true via the columns vector to prevent FetchSchema
+    // from re-reading the table and incorrectly adding the FID column as a field.
+    // An empty columns vector with the flag set is sufficient since geometry
+    // and FID are already configured from constructor parameters.
+    std::vector<H2GISColumnInfo> cols;  // Empty: no user-defined fields yet
 
-    // We need to pass the proper SRID/Type
     OGRH2GISLayer *poLayer =
         new OGRH2GISLayer(this, tableName.c_str(), tableName.c_str(),
                           (eGType != wkbNone ? geomCol.c_str() : ""),
-                          fidCol.c_str(), srid, eGType, 0, cols);
+                          fidCol.c_str(), srid, eGType, 0, cols,
+                          true /* bSchemaFetched */);
 
     // Add to list
     m_nLayers++;
@@ -1281,8 +1284,10 @@ OGRLayer *OGRH2GISDataSource::ICreateLayer(const char *pszName,
     m_papoLayers = (OGRH2GISLayer **)CPLRealloc(
         m_papoLayers, sizeof(OGRH2GISLayer *) * (m_nLayers + 1));
 
-    // Create empty columns vector - schema will be built as fields are added
-    std::vector<H2GISColumnInfo> emptyColumns;
+    // Empty columns vector: no user-defined fields yet.
+    // Pass bSchemaFetched=true to prevent FetchSchema from re-reading
+    // the table and incorrectly adding the FID column as a field.
+    std::vector<H2GISColumnInfo> cols;
 
     OGRH2GISLayer *layer =
         new OGRH2GISLayer(this,
@@ -1293,7 +1298,8 @@ OGRLayer *OGRH2GISDataSource::ICreateLayer(const char *pszName,
                           srid,
                           eGType,  // Use the requested geometry type
                           0,       // Row count (empty table)
-                          emptyColumns);
+                          cols,
+                          true /* bSchemaFetched */);
     m_papoLayers[m_nLayers++] = layer;
 
     return layer;

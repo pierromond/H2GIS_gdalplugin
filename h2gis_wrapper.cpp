@@ -192,7 +192,7 @@ static int h2gis_create_thread_with_stack(h2gis_thread_t *thread,
         pthread_attr_destroy(&attr);
         return -1;
     }
-    int ret = pthread_create(thread, &attr, func, NULL);
+    int ret = pthread_create(thread, &attr, func, arg);
     pthread_attr_destroy(&attr);
     return ret;
 }
@@ -224,6 +224,7 @@ static const char **h2gis_get_library_fallback_paths(void)
     static const char *paths[] = {
         // System library paths
         "/usr/lib/libh2gis.so",
+        "/usr/lib/x86_64-linux-gnu/libh2gis.so",
         "/usr/local/lib/libh2gis.so",
         // Python h2gis package (site-packages)
         NULL  // Sentinel
@@ -519,9 +520,16 @@ static void *worker_thread_func(void *arg)
     debug_log("worker_thread_func: All symbols resolved, creating isolate...");
 
     // Create GraalVM isolate ON THIS THREAD (with 64MB stack)
-    graal_create_isolate_params_t params = {};
-    params.version = 4;
-    int rc = fp_graal_create_isolate(&params, &g_isolate, &g_worker_thread);
+    // Pass nullptr for default parameters - version-agnostic
+    int rc = fp_graal_create_isolate(nullptr, &g_isolate, &g_worker_thread);
+    if (rc != 0)
+    {
+        // Fallback: try with explicit version 4 params
+        debug_log("worker_thread_func: graal_create_isolate with nullptr failed (%d), trying version 4 params...", rc);
+        graal_create_isolate_params_t params = {};
+        params.version = 4;
+        rc = fp_graal_create_isolate(&params, &g_isolate, &g_worker_thread);
+    }
     if (rc != 0)
     {
         debug_log("worker_thread_func: graal_create_isolate failed: %d", rc);

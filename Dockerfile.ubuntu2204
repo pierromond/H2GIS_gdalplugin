@@ -23,7 +23,7 @@ RUN echo "=== Build Environment ===" && \
 WORKDIR /src
 
 # Copy source files
-COPY ogr_h2gis.h ogrh2gis*.cpp h2gis_wrapper.* h2gis.h graal_isolate.h CMakeLists.txt ./
+COPY ogr_h2gis.h ogrh2gis*.cpp h2gis_wrapper.* graal_isolate.h CMakeLists.txt ./
 
 # Build
 RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && \

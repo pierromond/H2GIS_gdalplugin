@@ -240,7 +240,8 @@ class OGRH2GISLayer final : public OGRLayer
         int nSrid,               // SRID
         OGRwkbGeometryType eGeomType,  // Geometry type from GEOMETRY_TYPE
         GIntBig nRowCountEstimate,     // ROW_COUNT_ESTIMATE
-        const std::vector<H2GISColumnInfo> &columns);  // Pre-fetched columns
+        const std::vector<H2GISColumnInfo> &columns,  // Pre-fetched columns
+        bool bSchemaFetched = false);  // Explicitly mark schema as pre-fetched
 
     virtual ~OGRH2GISLayer();
 

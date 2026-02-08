@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #ifndef __GRAAL_ISOLATE_H
 #define __GRAAL_ISOLATE_H
 

@@ -1,11 +1,11 @@
-# Dockerfile for testing compilation on Ubuntu 25.10 with GDAL 3.10.3
-# This matches ubuntu:rolling as of 2026
+# Dockerfile for testing compilation on Ubuntu 24.04 with GDAL 3.8
+# This matches the current LTS release (primary target)
 
-FROM ubuntu:25.10
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install GDAL 3.10 from Ubuntu 25.10 repos
+# Install GDAL 3.8 from Ubuntu 24.04 repos
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
@@ -34,4 +34,4 @@ RUN ls -la build/gdal_H2GIS.so && \
     file build/gdal_H2GIS.so && \
     ldd build/gdal_H2GIS.so
 
-CMD ["echo", "Build successful for Ubuntu 25.10 + GDAL 3.10.3"]
+CMD ["echo", "Build successful for Ubuntu 24.04 + GDAL 3.8"]

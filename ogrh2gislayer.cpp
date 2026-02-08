@@ -47,14 +47,13 @@ static OGRGeometry* PrepareGeometryForExport(OGRGeometry *poGeom,
     return poGeom;
 }
 
-// h2gis_free_result_buffer is declared in h2gis.h, no need to redeclare
-
 OGRH2GISLayer::OGRH2GISLayer(OGRH2GISDataSource *poDS, const char *pszTableName,
                              const char *pszLayerName, const char *pszGeomCol,
                              const char *pszFIDCol, int nSrid,
                              OGRwkbGeometryType eGeomType,
                              GIntBig nRowCountEstimate,
-                             const std::vector<H2GISColumnInfo> &columns)
+                             const std::vector<H2GISColumnInfo> &columns,
+                             bool bSchemaFetched)
     : m_poDS(poDS), m_poFeatureDefn(new OGRFeatureDefn(pszLayerName)),
       m_osTableName(pszTableName ? pszTableName : ""),
       m_osGeomCol(pszGeomCol ? pszGeomCol : ""),
@@ -63,7 +62,7 @@ OGRH2GISLayer::OGRH2GISLayer(OGRH2GISDataSource *poDS, const char *pszTableName,
       m_nBatchRows(0), m_iNextRowInBatch(0), m_iNextShapeId(0),
       m_nFeatureCount(nRowCountEstimate),
       m_bSchemaFetched(
-          !columns.empty()),  // Schema is pre-fetched if columns provided
+          bSchemaFetched || !columns.empty()),  // Schema is pre-fetched if columns provided or explicitly set
       m_bResetPending(true)
 {
     SetDescription(m_poFeatureDefn->GetName());
@@ -835,17 +834,53 @@ OGRFeature *OGRH2GISLayer::GetFeature(GIntBig nFID)
                 if (blobLen > 0)
                 {
                     OGRGeometry *poGeom = nullptr;
-                    if (OGRGeometryFactory::createFromWkb(
-                            colPtr, nullptr, &poGeom, blobLen) == OGRERR_NONE)
+
+                    // Handle EWKB (Extended WKB) with SRID embedded
+                    // Same logic as GetNextFeature batch path
+                    uint8_t byteOrder = colPtr[0];
+                    uint32_t wkbType;
+                    if (byteOrder == 1)
+                        memcpy(&wkbType, colPtr + 1, 4);
+                    else
+                        wkbType = ((uint32_t)colPtr[1] << 24) |
+                                  ((uint32_t)colPtr[2] << 16) |
+                                  ((uint32_t)colPtr[3] << 8) |
+                                  (uint32_t)colPtr[4];
+
+                    const uint32_t SRID_FLAG = 0x20000000;
+                    if (wkbType & SRID_FLAG)
                     {
-                        if (poGeom)
+                        // EWKB with SRID - strip the 4-byte SRID
+                        int newLen = blobLen - 4;
+                        std::vector<uint8_t> wkbBuf(newLen);
+                        wkbBuf[0] = colPtr[0];
+                        uint32_t newType = wkbType & ~SRID_FLAG;
+                        if (byteOrder == 1)
+                            memcpy(&wkbBuf[1], &newType, 4);
+                        else
                         {
-                            if (m_nSRID > 0)
-                                poGeom->assignSpatialReference(
-                                    m_poFeatureDefn->GetGeomFieldDefn(0)
-                                        ->GetSpatialRef());
-                            poFeature->SetGeometryDirectly(poGeom);
+                            wkbBuf[1] = (newType >> 24) & 0xFF;
+                            wkbBuf[2] = (newType >> 16) & 0xFF;
+                            wkbBuf[3] = (newType >> 8) & 0xFF;
+                            wkbBuf[4] = newType & 0xFF;
                         }
+                        memcpy(&wkbBuf[5], colPtr + 9, blobLen - 9);
+                        OGRGeometryFactory::createFromWkb(
+                            wkbBuf.data(), nullptr, &poGeom, newLen);
+                    }
+                    else
+                    {
+                        OGRGeometryFactory::createFromWkb(
+                            colPtr, nullptr, &poGeom, blobLen);
+                    }
+
+                    if (poGeom)
+                    {
+                        if (m_nSRID > 0)
+                            poGeom->assignSpatialReference(
+                                m_poFeatureDefn->GetGeomFieldDefn(0)
+                                    ->GetSpatialRef());
+                        poFeature->SetGeometryDirectly(poGeom);
                     }
                 }
             }
@@ -1195,62 +1230,31 @@ OGRErr OGRH2GISLayer::GetExtent(int iGeomField, OGREnvelope *psExtent,
         (graal_isolatethread_t *)m_poDS->GetThread();
     long long conn = m_poDS->GetConnection();
 
-    // Sample first 10000 features for extent estimation (fast)
+    // Use ST_Extent aggregate for efficient server-side computation (single row result)
     // Use table name for SQL (not layer name which may be TABLE.GEOM_COL)
-    std::string sql = "SELECT ST_XMin(\"" + std::string(pszGeomCol) +
-                      "\"), "
-                      "ST_YMin(\"" +
-                      std::string(pszGeomCol) +
-                      "\"), "
-                      "ST_XMax(\"" +
-                      std::string(pszGeomCol) +
-                      "\"), "
-                      "ST_YMax(\"" +
-                      std::string(pszGeomCol) +
-                      "\") "
-                      "FROM \"" +
-                      m_osTableName +
-                      "\" "
-                      "WHERE \"" +
-                      std::string(pszGeomCol) +
-                      "\" IS NOT NULL "
-                      "LIMIT 10000";
+    std::string sql = "SELECT ST_XMin(ext), ST_YMin(ext), ST_XMax(ext), ST_YMax(ext) "
+                      "FROM (SELECT ST_Extent(\"" + std::string(pszGeomCol) +
+                      "\") AS ext FROM \"" + m_osTableName + "\") T";
 
     long long stmt = h2gis_prepare(thread, conn, (char *)sql.c_str());
     if (!stmt)
     {
-        // Fallback: don't compute extent
-        psExtent->MinX = 0;
-        psExtent->MinY = 0;
-        psExtent->MaxX = 0;
-        psExtent->MaxY = 0;
-        return OGRERR_NONE;  // Return success with empty extent
+        return OGRERR_FAILURE;
     }
 
     long long rs = h2gis_execute_prepared(thread, stmt);
     if (!rs)
     {
         h2gis_close_query(thread, stmt);
-        psExtent->MinX = 0;
-        psExtent->MinY = 0;
-        psExtent->MaxX = 0;
-        psExtent->MaxY = 0;
-        return OGRERR_NONE;
+        return OGRERR_FAILURE;
     }
 
-    double minX = std::numeric_limits<double>::max();
-    double minY = std::numeric_limits<double>::max();
-    double maxX = std::numeric_limits<double>::lowest();
-    double maxY = std::numeric_limits<double>::lowest();
-    int nCount = 0;
-
     long long sizeOut = 0;
-    void *buffer = nullptr;
+    void *buffer = h2gis_fetch_one(thread, rs, &sizeOut);
 
-    // Fetch batches of results
-    while ((buffer = h2gis_fetch_batch(thread, rs, 1000, &sizeOut)) !=
-               nullptr &&
-           sizeOut > 0)
+    OGRErr eErr = OGRERR_FAILURE;
+
+    if (buffer && sizeOut > 0)
     {
         uint8_t *ptr = (uint8_t *)buffer;
 
@@ -1260,94 +1264,54 @@ OGRErr OGRH2GISLayer::GetExtent(int iGeomField, OGREnvelope *psExtent,
         memcpy(&rowCount, ptr, 4);
         ptr += 4;
 
-        if (rowCount <= 0 || colCount < 4)
+        if (rowCount > 0 && colCount >= 4)
         {
-            h2gis_free_result_buffer(thread, buffer);
-            break;
-        }
+            // Read column offsets
+            std::vector<int64_t> offsets(colCount);
+            for (int i = 0; i < colCount; i++)
+            {
+                memcpy(&offsets[i], ptr, 8);
+                ptr += 8;
+            }
 
-        // Read column offsets
-        std::vector<int64_t> offsets(colCount);
-        for (int i = 0; i < colCount; i++)
-        {
-            memcpy(&offsets[i], ptr, 8);
-            ptr += 8;
-        }
+            uint8_t *base = (uint8_t *)buffer;
 
-        uint8_t *base = (uint8_t *)buffer;
-
-        // Setup column value pointers (skip headers)
-        std::vector<uint8_t *> colPtrs(colCount);
-        for (int i = 0; i < colCount; i++)
-        {
-            uint8_t *colPtr = base + offsets[i];
-            int32_t nameLen;
-            memcpy(&nameLen, colPtr, 4);
-            colPtr += 4 + nameLen;
-            colPtr += 4;  // Skip type
-            colPtr += 4;  // Skip dataLen
-            colPtrs[i] = colPtr;
-        }
-
-        // Process each row
-        for (int row = 0; row < rowCount; row++)
-        {
             double vals[4];
             bool valid = true;
-            for (int col = 0; col < 4 && valid; col++)
+            for (int c = 0; c < 4 && valid; c++)
             {
+                uint8_t *colPtr = base + offsets[c];
+                int32_t nameLen;
+                memcpy(&nameLen, colPtr, 4);
+                colPtr += 4 + nameLen;
+                colPtr += 4;  // Skip type
+                colPtr += 4;  // Skip dataLen
+
                 double val;
-                memcpy(&val, colPtrs[col], 8);
-                colPtrs[col] += 8;
+                memcpy(&val, colPtr, 8);
                 if (std::isnan(val) || std::isinf(val))
-                {
                     valid = false;
-                }
                 else
-                {
-                    vals[col] = val;
-                }
+                    vals[c] = val;
             }
 
             if (valid)
             {
-                if (vals[0] < minX)
-                    minX = vals[0];
-                if (vals[1] < minY)
-                    minY = vals[1];
-                if (vals[2] > maxX)
-                    maxX = vals[2];
-                if (vals[3] > maxY)
-                    maxY = vals[3];
-                nCount++;
+                psExtent->MinX = vals[0];
+                psExtent->MinY = vals[1];
+                psExtent->MaxX = vals[2];
+                psExtent->MaxY = vals[3];
+                eErr = OGRERR_NONE;
             }
         }
 
         h2gis_free_result_buffer(thread, buffer);
-
-        // Limit total features processed
-        if (nCount >= 10000)
-            break;
     }
 
     h2gis_close_query(thread, rs);
     h2gis_close_query(thread, stmt);
 
-    if (nCount > 0)
-    {
-        psExtent->MinX = minX;
-        psExtent->MinY = minY;
-        psExtent->MaxX = maxX;
-        psExtent->MaxY = maxY;
-        return OGRERR_NONE;
-    }
-
-    // No valid features found
-    psExtent->MinX = 0;
-    psExtent->MinY = 0;
-    psExtent->MaxX = 0;
-    psExtent->MaxY = 0;
-    return OGRERR_NONE;
+    return eErr;
 }
 
 #if GDAL_VERSION_NUM >= 3090000

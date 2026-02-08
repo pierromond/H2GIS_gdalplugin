@@ -3,7 +3,7 @@
 [![CI](https://github.com/pierromond/H2GIS_gdalplugin/actions/workflows/ci.yml/badge.svg)](https://github.com/pierromond/H2GIS_gdalplugin/actions/workflows/ci.yml)
 [![GDAL](https://img.shields.io/badge/GDAL-3.4--3.12-blue.svg)](https://gdal.org/)
 [![H2GIS](https://img.shields.io/badge/H2GIS-2.2+-green.svg)](http://www.h2gis.org/)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Native OGR/GDAL driver for reading and writing **H2GIS** spatial databases (`.mv.db` files).
 
@@ -126,7 +126,7 @@ The installation process involves two steps:
   # or in Python
   python -c "from osgeo import gdal; print(gdal.__version__)"
   ```
-- **Download the artifact**: Go to [GitHub Actions](https://github.com/pierromond/H2GIS_gdalplugin/actions), select the latest successfull run, and download the artifact matching your OS and GDAL version.
+- **Download the artifact**: Go to [GitHub Actions](https://github.com/pierromond/H2GIS_gdalplugin/actions), select the latest successful run, and download the artifact matching your OS and GDAL version.
 
 ### 2. Install on Linux
 
